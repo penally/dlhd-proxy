@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import re
+import logging
 
 import httpx
 from dateutil import parser
@@ -18,7 +19,17 @@ from .utils import urlsafe_base64_decode
 
 GUIDE_FILE = Path("guide.xml")
 CHANNEL_FILE = Path("channels.json")
+LOG_FILE = Path("dlhd_proxy.log")
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
 
 fastapi_app = FastAPI()
 step_daddy = StepDaddy()
@@ -49,8 +60,10 @@ async def stream(channel_id: str):
             headers={f"Content-Disposition": f"attachment; filename={channel_id}.m3u8"}
         )
     except IndexError:
+        logger.error("Stream not found: %s", channel_id)
         return JSONResponse(content={"error": "Stream not found"}, status_code=status.HTTP_404_NOT_FOUND)
     except Exception as e:
+        logger.exception("Stream error for %s", channel_id)
         return JSONResponse(content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -63,6 +76,7 @@ async def key(url: str, host: str):
             headers={"Content-Disposition": "attachment; filename=key"}
         )
     except Exception as e:
+        logger.exception("Key request failed")
         return JSONResponse(content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -75,6 +89,7 @@ async def content(path: str):
                     yield chunk
         return StreamingResponse(proxy_stream(), media_type="application/octet-stream")
     except Exception as e:
+        logger.exception("Content proxy failed")
         return JSONResponse(content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -82,9 +97,12 @@ async def update_channels():
     while True:
         try:
             await step_daddy.load_channels()
+            logger.info("Channels refreshed")
             await asyncio.sleep(300)
         except asyncio.CancelledError:
             continue
+        except Exception:
+            logger.exception("Failed to update channels")
 
 
 def get_channels():
@@ -256,6 +274,7 @@ async def generate_guide():
 
     xml_data = tostring(root, encoding="utf-8", xml_declaration=True)
     GUIDE_FILE.write_bytes(xml_data)
+    logger.info("guide.xml generated")
 
 
 @fastapi_app.get("/guide.xml")
@@ -286,5 +305,31 @@ async def auto_update_guide():
         except asyncio.CancelledError:
             break
         except Exception:
+            logger.exception("Automatic guide update failed")
             continue
+
+
+async def refresh_all():
+    """Manually refresh channels and guide."""
+    logger.info("Manual refresh requested")
+    await step_daddy.load_channels()
+    await generate_guide()
+    logger.info("Manual refresh complete")
+
+
+@fastapi_app.post("/refresh")
+async def refresh():
+    try:
+        await refresh_all()
+        return JSONResponse({"status": "ok"})
+    except Exception as e:
+        logger.exception("Manual refresh failed")
+        return JSONResponse({"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@fastapi_app.get("/logs")
+def logs():
+    if LOG_FILE.exists():
+        return FileResponse(LOG_FILE)
+    return JSONResponse({"error": "Log file not found"}, status_code=status.HTTP_404_NOT_FOUND)
 
