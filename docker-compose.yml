@@ -1,5 +1,5 @@
 services:
-  step-daddy-live-hd:
+  dlhd-proxy:
     build:
       context: .
       dockerfile: Dockerfile

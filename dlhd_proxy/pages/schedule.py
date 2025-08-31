@@ -3,8 +3,8 @@ from typing import Dict, List, TypedDict
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
 from dateutil import parser
-from StepDaddyLiveHD import backend
-from StepDaddyLiveHD.components import navbar
+from dlhd_proxy import backend
+from dlhd_proxy.components import navbar
 
 
 class ChannelItem(TypedDict):

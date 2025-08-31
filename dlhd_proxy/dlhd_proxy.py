@@ -1,9 +1,9 @@
 import reflex as rx
-import StepDaddyLiveHD.pages
+import dlhd_proxy.pages
 from typing import List
-from StepDaddyLiveHD import backend
-from StepDaddyLiveHD.components import navbar, card
-from StepDaddyLiveHD.step_daddy import Channel
+from dlhd_proxy import backend
+from dlhd_proxy.components import navbar, card
+from dlhd_proxy.step_daddy import Channel
 
 
 class State(rx.State):

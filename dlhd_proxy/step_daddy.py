@@ -2,6 +2,7 @@ import json
 import re
 import reflex as rx
 from urllib.parse import quote, urlparse
+from pathlib import Path
 from curl_cffi import AsyncSession
 from typing import List
 from .utils import encrypt, decrypt, urlsafe_base64, decode_bundle
@@ -24,7 +25,8 @@ class StepDaddy:
             self._session = AsyncSession()
         self._base_url = "https://thedaddy.top"
         self.channels = []
-        with open("StepDaddyLiveHD/meta.json", "r") as f:
+        meta_path = Path(__file__).with_name("meta.json")
+        with meta_path.open() as f:
             self._meta = json.load(f)
 
     def _headers(self, referer: str = None, origin: str = None):

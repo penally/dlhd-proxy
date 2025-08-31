@@ -1,4 +1,4 @@
-# StepDaddyLiveHD 🚀
+# dlhd-proxy 🚀
 
 A self-hosted IPTV proxy built with [Reflex](https://reflex.dev), enabling you to watch over 1,000 📺 TV channels and search for live events or sports matches ⚽🏀. Stream directly in your browser 🌐 or through any media player client 🎶. You can also download the entire playlist (`playlist.m3u8`) and integrate it with platforms like Jellyfin 🍇 or other IPTV media players.
 
@@ -9,6 +9,7 @@ A self-hosted IPTV proxy built with [Reflex](https://reflex.dev), enabling you t
 - **📱 Stream Anywhere**: Watch TV channels on any device via the web or media players.
 - **🔎 Event Search**: Quickly find the right channel for live events or sports.
 - **📄 Playlist Integration**: Download the `playlist.m3u8` and use it with Jellyfin or any IPTV client.
+- **🗓️ XMLTV Guide**: Access scheduling information at `guide.xml` for use with media servers like Jellyfin.
 - **⚙️ Customizable Hosting**: Host the application locally or deploy it via Docker with various configuration options.
 
 ---
@@ -26,8 +27,8 @@ A self-hosted IPTV proxy built with [Reflex](https://reflex.dev), enabling you t
 
 Plain Docker:
 ```bash
-docker build -t step-daddy-live-hd .
-docker run -p 3000:3000 step-daddy-live-hd
+docker build -t dlhd-proxy .
+docker run -p 3000:3000 dlhd-proxy
 ```
 
 ---
@@ -37,8 +38,8 @@ docker run -p 3000:3000 step-daddy-live-hd
 1. Install Python 🐍 (tested with version 3.12).
 2. Clone the repository and navigate into the project directory:
    ```bash
-   git clone https://github.com/gookie-dev/StepDaddyLiveHD
-   cd StepDaddyLiveHD
+   git clone https://github.com/gookie-dev/dlhd-proxy
+   cd dlhd-proxy
    ```
 3. Create and activate a virtual environment:
    ```bash
@@ -73,8 +74,8 @@ Edit the `.env` for docker compose.
 
 ### Example Docker Command
 ```bash
-docker build --build-arg PROXY_CONTENT=FALSE --build-arg API_URL=https://example.com --build-arg SOCKS5=user:password@proxy.example.com:1080 -t step-daddy-live-hd .
-docker run -e PROXY_CONTENT=FALSE -e API_URL=https://example.com -e SOCKS5=user:password@proxy.example.com:1080 -p 3000:3000 step-daddy-live-hd
+docker build --build-arg PROXY_CONTENT=FALSE --build-arg API_URL=https://example.com --build-arg SOCKS5=user:password@proxy.example.com:1080 -t dlhd-proxy .
+docker run -e PROXY_CONTENT=FALSE -e API_URL=https://example.com -e SOCKS5=user:password@proxy.example.com:1080 -p 3000:3000 dlhd-proxy
 ```
 
 ---

@@ -1,7 +1,13 @@
 import os
 import asyncio
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+
 import httpx
-from StepDaddyLiveHD.step_daddy import StepDaddy, Channel
+from dateutil import parser
+from xml.etree.ElementTree import Element, SubElement, tostring
+
+from dlhd_proxy.step_daddy import StepDaddy, Channel
 from fastapi import Response, status, FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from .utils import urlsafe_base64_decode
@@ -98,4 +104,57 @@ async def logo(logo: str):
         return JSONResponse(content={"error": "Request timed out"}, status_code=status.HTTP_504_GATEWAY_TIMEOUT)
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@fastapi_app.get("/guide.xml")
+async def guide():
+    """Return an XMLTV guide generated from the schedule."""
+    schedule = await step_daddy.schedule()
+
+    root = Element("tv", attrib={"generator-info-name": "dlhd-proxy"})
+    added_channels = set()
+
+    # Known channels with logos
+    for ch in step_daddy.channels:
+        channel_elem = SubElement(root, "channel", id=ch.id)
+        SubElement(channel_elem, "display-name").text = ch.name
+        if ch.logo:
+            SubElement(channel_elem, "icon", src=ch.logo)
+        added_channels.add(ch.id)
+
+    def ensure_channel(channel: dict):
+        cid = channel.get("channel_id")
+        if cid and cid not in added_channels:
+            elem = SubElement(root, "channel", id=cid)
+            SubElement(elem, "display-name").text = channel.get("channel_name", cid)
+            added_channels.add(cid)
+
+    def iter_channels(data):
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return list(data.values())
+        return []
+
+    for day, categories in schedule.items():
+        date = parser.parse(day.split(" - ")[0], dayfirst=True)
+        for category, events in categories.items():
+            for event in events:
+                hour, minute = map(int, event["time"].split(":"))
+                start = date.replace(hour=hour, minute=minute, tzinfo=ZoneInfo("UTC"))
+                stop = start + timedelta(hours=1)
+                for channel in iter_channels(event.get("channels")) + iter_channels(event.get("channels2")):
+                    ensure_channel(channel)
+                    programme = SubElement(
+                        root,
+                        "programme",
+                        start=start.strftime("%Y%m%d%H%M%S +0000"),
+                        stop=stop.strftime("%Y%m%d%H%M%S +0000"),
+                        channel=channel.get("channel_id"),
+                    )
+                    SubElement(programme, "title", lang="en").text = event.get("event")
+                    SubElement(programme, "category").text = category
+
+    xml_data = tostring(root, encoding="utf-8", xml_declaration=True)
+    return Response(content=xml_data, media_type="application/xml")
 

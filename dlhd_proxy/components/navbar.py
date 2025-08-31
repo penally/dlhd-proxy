@@ -1,8 +1,4 @@
-from pyexpat.errors import XML_ERROR_INVALID_ARGUMENT
-
 import reflex as rx
-from pygments.styles.dracula import background
-
 from rxconfig import config
 
 
@@ -36,7 +32,7 @@ def navbar(search=None) -> rx.Component:
                 rx.hstack(
                     rx.vstack(
                         rx.text(
-                            config.app_name, size="8", weight="bold"
+                            config.app_name.replace("_","-"), size="8", weight="bold"
                         ),
                         rx.box(
                             background_color="#fa5252",
@@ -62,7 +58,8 @@ def navbar(search=None) -> rx.Component:
                     rx.hstack(
                         navbar_icons_item("Schedule", "calendar-sync", "/schedule"),
                         navbar_icons_item("playlist.m3u8", "file-down", "/playlist"),
-                        navbar_icons_item("Github", "github", "https://github.com/gookie-dev/StepDaddyLiveHD", True),
+                        navbar_icons_item("guide.xml", "file-text", "/guide.xml"),
+                        navbar_icons_item("Github", "github", "https://github.com/gookie-dev/dlhd-proxy", True),
                         spacing="6",
                     ),
                     justify=rx.breakpoints(initial="between"),
@@ -74,7 +71,7 @@ def navbar(search=None) -> rx.Component:
                     rx.hstack(
                         rx.vstack(
                             rx.text(
-                                config.app_name, size="7", weight="bold"
+                                config.app_name.replace("_","-"), size="7", weight="bold"
                             ),
                             rx.box(
                                 background_color="#fa5252",
@@ -99,7 +96,8 @@ def navbar(search=None) -> rx.Component:
                             rx.menu.content(
                                 navbar_icons_menu_item("Schedule", "calendar-sync", "/schedule"),
                                 navbar_icons_menu_item("playlist.m3u8", "file-down", "/playlist"),
-                                navbar_icons_menu_item("Github", "github", "https://github.com/gookie-dev/StepDaddyLiveHD", True),
+                                navbar_icons_menu_item("guide.xml", "file-text", "/guide.xml"),
+                                navbar_icons_menu_item("Github", "github", "https://github.com/gookie-dev/dlhd-proxy", True),
                             ),
                             justify="end",
                         ),
