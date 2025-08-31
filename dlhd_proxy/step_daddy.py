@@ -1,12 +1,17 @@
 import json
 import re
+import logging
 import reflex as rx
 from urllib.parse import quote, urlparse
 from pathlib import Path
 from curl_cffi import AsyncSession
+from curl_cffi.requests.exceptions import CurlError
 from typing import List
 from .utils import encrypt, decrypt, urlsafe_base64, decode_bundle
 from rxconfig import config
+
+
+logger = logging.getLogger(__name__)
 
 
 class Channel(rx.Base):
@@ -118,6 +123,7 @@ class StepDaddy:
     # Not generic
     async def stream(self, channel_id: str):
         key = "CHANNEL_KEY"
+        max_retries = 3
 
         prefixes = ["stream", "cast", "watch"]
         for prefix in prefixes:
@@ -128,8 +134,24 @@ class StepDaddy:
             matches = re.compile("iframe src=\"(.*)\" width").findall(response.text)
             if matches:
                 source_url = matches[0]
-                source_response = await self._session.post(source_url, headers=self._headers(url))
-                if key in source_response.text:
+                source_response = None
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        source_response = await self._session.post(
+                            source_url, headers=self._headers(url)
+                        )
+                        break
+                    except CurlError as exc:
+                        if attempt == max_retries:
+                            raise
+                        logger.warning(
+                            "Retrying POST to %s due to %s (attempt %d/%d)",
+                            source_url,
+                            exc.__class__.__name__,
+                            attempt,
+                            max_retries,
+                        )
+                if source_response and key in source_response.text:
                     break
         else:
             raise ValueError("Failed to find source URL for channel")
