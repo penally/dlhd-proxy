@@ -12,7 +12,7 @@ from dateutil import parser
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from dlhd_proxy.step_daddy import StepDaddy, Channel
-from fastapi import Response, status, FastAPI
+from fastapi import Response, status, FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from rxconfig import config
 from .utils import urlsafe_base64_decode
@@ -32,6 +32,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 fastapi_app = FastAPI()
+
+
+@fastapi_app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    """Log 404 errors and return a standard response."""
+    logger.warning("404 Not Found: %s", request.url.path)
+    return JSONResponse({"detail": "Not Found"}, status_code=status.HTTP_404_NOT_FOUND)
+
+
 step_daddy = StepDaddy()
 client = httpx.AsyncClient(http2=True, timeout=None)
 
@@ -47,8 +56,13 @@ def get_selected_channel_ids() -> set[str]:
 
 
 def set_selected_channel_ids(ids: list[str]) -> None:
-    """Persist the selected channel IDs to disk."""
+    """Persist the selected channel IDs and refresh the guide."""
     CHANNEL_FILE.write_text(json.dumps(ids))
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(generate_guide())
+    except RuntimeError:
+        asyncio.run(generate_guide())
 
 
 @fastapi_app.get("/stream/{channel_id}.m3u8")

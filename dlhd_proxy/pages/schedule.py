@@ -99,11 +99,13 @@ class ScheduleState(rx.State):
 
 
 def event_card(event: EventItem) -> rx.Component:
+    """Render a single schedule entry."""
+    local_dt = event["dt"].astimezone(ZoneInfo(config.timezone))
     return rx.card(
         rx.heading(event["name"]),
         rx.hstack(
-            rx.moment(event["dt"], format="HH:mm", local=False),
-            rx.moment(event["dt"], format="ddd MMM DD YYYY", local=False),
+            rx.text(local_dt.strftime("%H:%M")),
+            rx.text(local_dt.strftime("%a %b %d %Y")),
             rx.badge(event["category"], margin_top="0.2rem"),
         ),
         rx.hstack(
