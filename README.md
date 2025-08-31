@@ -10,6 +10,7 @@ A self-hosted IPTV proxy built with [Reflex](https://reflex.dev), enabling you t
 - **🔎 Event Search**: Quickly find the right channel for live events or sports.
 - **📄 Playlist Integration**: Download the `playlist.m3u8` and use it with Jellyfin or any IPTV client.
 - **🗓️ XMLTV Guide**: Access scheduling information at `guide.xml` for use with media servers like Jellyfin.
+- **🕒 Daily Guide Updates**: Automatically refresh `guide.xml` once per day at a user-defined time.
 - **⚙️ Customizable Hosting**: Host the application locally or deploy it via Docker with various configuration options.
 
 ---
@@ -69,6 +70,8 @@ docker run -p 3000:3000 dlhd-proxy
 - **API_URL**: Set the domain or IP where the server is reachable.
 - **SOCKS5**: Proxy DLHD traffic through a SOCKS5 server if needed.
 - **PROXY_CONTENT**: Proxy video content itself through your server (optional).
+- **TZ**: Timezone used for schedules and guide generation (e.g., `America/New_York`).
+- **GUIDE_UPDATE**: Daily time (`HH:MM`) to refresh `guide.xml`.
 
 Edit the `.env` for docker compose.
 

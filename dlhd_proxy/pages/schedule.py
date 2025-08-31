@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from dateutil import parser
 from dlhd_proxy import backend
 from dlhd_proxy.components import navbar
+from rxconfig import config
 
 
 class ChannelItem(TypedDict):
@@ -57,6 +58,7 @@ class ScheduleState(rx.State):
         self.events = []
         categories = {}
         days = await backend.get_schedule()
+        tz = ZoneInfo(config.timezone)
         for day in days:
             name = day.split(" - ")[0]
             dt = parser.parse(name, dayfirst=True)
@@ -65,7 +67,7 @@ class ScheduleState(rx.State):
                 for event in days[day][category]:
                     time = event["time"]
                     hour, minute = map(int, time.split(":"))
-                    event_dt = dt.replace(hour=hour, minute=minute).replace(tzinfo=ZoneInfo("UTC"))
+                    event_dt = dt.replace(hour=hour, minute=minute).replace(tzinfo=tz)
                     channels = self.get_channels(event.get("channels"))
                     channels.extend(self.get_channels(event.get("channels2")))
                     channels.sort(key=lambda channel: channel["name"])
@@ -79,7 +81,7 @@ class ScheduleState(rx.State):
 
     @rx.var
     def filtered_events(self) -> List[EventItem]:
-        now = datetime.now(ZoneInfo("UTC")) - timedelta(minutes=30)
+        now = datetime.now(ZoneInfo(config.timezone)) - timedelta(minutes=30)
         query = self.search_query.strip().lower()
 
         return [
@@ -94,8 +96,8 @@ def event_card(event: EventItem) -> rx.Component:
     return rx.card(
         rx.heading(event["name"]),
         rx.hstack(
-            rx.moment(event["dt"], format="HH:mm", local=True),
-            rx.moment(event["dt"], format="ddd MMM DD YYYY", local=True),
+            rx.moment(event["dt"], format="HH:mm", local=False),
+            rx.moment(event["dt"], format="ddd MMM DD YYYY", local=False),
             rx.badge(event["category"], margin_top="0.2rem"),
         ),
         rx.hstack(
