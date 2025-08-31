@@ -1,6 +1,6 @@
 # dlhd-proxy 🚀
 
-A self-hosted IPTV proxy built with [Reflex](https://reflex.dev), enabling you to watch over 1,000 📺 TV channels and search for live events or sports matches ⚽🏀. Stream directly in your browser 🌐 or through any media player client 🎶. You can also download the entire playlist (`playlist.m3u8`) and integrate it with platforms like Jellyfin 🍇 or other IPTV media players.
+This is a fork of a self-hosted IPTV proxy built with [Reflex](https://reflex.dev), enabling you to watch over 1,000 📺 TV channels and search for live events or sports matches ⚽🏀. Stream directly in your browser 🌐 or through any media player client 🎶. You can also download the entire playlist (`playlist.m3u8`) and integrate it with platforms like Jellyfin 🍇 or other IPTV media players.
 
 ---
 
@@ -37,10 +37,10 @@ docker run -p 3000:3000 dlhd-proxy
 
 ## 🖥️ Local Installation
 
-1. Install Python 🐍 (tested with version 3.12).
+1. Install Python 🐍 (tested with version 3.11).
 2. Clone the repository and navigate into the project directory:
    ```bash
-   git clone https://github.com/gookie-dev/dlhd-proxy
+   git clone https://github.com/eribbey/dlhd-proxy
    cd dlhd-proxy
    ```
 3. Create and activate a virtual environment:
@@ -91,19 +91,6 @@ docker run -e PROXY_CONTENT=FALSE -e API_URL=https://example.com -e SOCKS5=user:
 - **🏠 Home**: Browse and search for TV channels.
 - **📺 Live Events**: Quickly find channels broadcasting live events and sports.
 - **📥 Playlist Download**: Download the `playlist.m3u8` file for integration with media players.
-
----
-
-## 📸 Screenshots
-
-**Home Page**
-<img alt="Home Page" src="https://files.catbox.moe/qlqqs5.png">
-
-**Watch Page**
-<img alt="Watch Page" src="https://files.catbox.moe/974r9w.png">
-
-**Live Events**
-<img alt="Live Events" src="https://files.catbox.moe/7oawie.png">
 
 ---
 
