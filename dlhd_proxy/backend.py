@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import re
 
 import httpx
 from dateutil import parser
@@ -116,11 +117,40 @@ async def get_schedule():
     schedule = await step_daddy.schedule()
     selected = get_selected_channel_ids()
 
+    # Build lookup maps for resolving channel name/id mismatches.
+    id_to_name = {ch.id: ch.name for ch in step_daddy.channels}
+
+    def norm(name: str) -> str:
+        """Return a simplified version of a channel name."""
+        return re.sub(r"\W+", "", name or "").lower()
+
+    name_to_id: dict[str, str] = {}
+    for ch in step_daddy.channels:
+        key = norm(ch.name)
+        # Prefer selected channels when multiple share the same name.
+        if key not in name_to_id or ch.id in selected:
+            name_to_id[key] = ch.id
+
     def filter_channels(data):
+        def resolve(chan: dict):
+            cid = str(chan.get("channel_id", ""))
+            name = chan.get("channel_name", "")
+            mapped = name_to_id.get(norm(name))
+            if id_to_name.get(cid) != name:
+                if mapped:
+                    cid = mapped
+                else:
+                    return None
+            if cid in selected:
+                chan = chan.copy()
+                chan["channel_id"] = cid
+                return chan
+            return None
+
         if isinstance(data, list):
-            return [c for c in data if c.get("channel_id") in selected]
+            return [c for c in (resolve(x) for x in data) if c]
         if isinstance(data, dict):
-            return {k: v for k, v in data.items() if v.get("channel_id") in selected}
+            return {k: v for k, v in ((k, resolve(v)) for k, v in data.items()) if v}
         return []
 
     filtered = {}
