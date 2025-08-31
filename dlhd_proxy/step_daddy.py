@@ -41,15 +41,53 @@ class StepDaddy:
         return headers
 
     async def load_channels(self):
-        channels = []
+        channels: dict[str, Channel] = {}
+
+        # Load the 24/7 channels from the main page.
         try:
-            response = await self._session.get(f"{self._base_url}/24-7-channels.php", headers=self._headers())
-            channels_block = re.compile("<center><h1(.+?)tab-2", re.MULTILINE | re.DOTALL).findall(str(response.text))
-            channels_data = re.compile("href=\"(.*)\" target(.*)<strong>(.*)</strong>").findall(channels_block[0])
+            response = await self._session.get(
+                f"{self._base_url}/24-7-channels.php", headers=self._headers()
+            )
+            channels_block = re.compile(
+                "<center><h1(.+?)tab-2", re.MULTILINE | re.DOTALL
+            ).findall(str(response.text))
+            channels_data = re.compile(
+                "href=\"(.*)\" target(.*)<strong>(.*)</strong>"
+            ).findall(channels_block[0])
             for channel_data in channels_data:
-                channels.append(self._get_channel(channel_data))
-        finally:
-            self.channels = sorted(channels, key=lambda channel: (channel.name.startswith("18"), channel.name))
+                ch = self._get_channel(channel_data)
+                channels[ch.id] = ch
+        except Exception:
+            pass
+
+        # Include channels referenced only in the schedule.
+        try:
+            schedule = await self.schedule()
+
+            def iter_channels(data):
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict):
+                    return list(data.values())
+                return []
+
+            for day in schedule.values():
+                for events in day.values():
+                    for event in events:
+                        chan_lists = iter_channels(event.get("channels")) + iter_channels(
+                            event.get("channels2")
+                        )
+                        for info in chan_lists:
+                            cid = str(info.get("channel_id"))
+                            name = info.get("channel_name", cid)
+                            if cid not in channels:
+                                channels[cid] = self._channel_from_schedule(cid, name)
+        except Exception:
+            pass
+
+        self.channels = sorted(
+            channels.values(), key=lambda channel: (channel.name.startswith("18"), channel.name)
+        )
 
     def _get_channel(self, channel_data) -> Channel:
         channel_id = channel_data[0].split('-')[1].replace('.php', '')
@@ -68,6 +106,14 @@ class StepDaddy:
         if logo.startswith("http"):
             logo = f"{config.api_url}/logo/{urlsafe_base64(logo)}"
         return Channel(id=channel_id, name=channel_name, tags=meta.get("tags", []), logo=logo)
+
+    def _channel_from_schedule(self, channel_id: str, channel_name: str) -> Channel:
+        clean_channel_name = re.sub(r"\s*\(.*?\)", "", channel_name)
+        meta = self._meta.get(clean_channel_name, {})
+        logo = meta.get("logo", "/missing.png")
+        if logo.startswith("http"):
+            logo = f"{config.api_url}/logo/{urlsafe_base64(logo)}"
+        return Channel(id=str(channel_id), name=channel_name, tags=meta.get("tags", []), logo=logo)
 
     # Not generic
     async def stream(self, channel_id: str):
