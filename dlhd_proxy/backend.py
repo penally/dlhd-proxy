@@ -3,7 +3,7 @@ import json
 import asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import re
 import logging
 
@@ -43,6 +43,12 @@ async def not_found_handler(request: Request, exc):
 
 step_daddy = StepDaddy()
 client = httpx.AsyncClient(http2=True, timeout=None)
+
+try:
+    APP_TZ = ZoneInfo(config.timezone)
+except ZoneInfoNotFoundError:
+    logger.warning("Unknown timezone '%s', defaulting to UTC", config.timezone)
+    APP_TZ = ZoneInfo("UTC")
 
 
 def get_selected_channel_ids() -> set[str]:
@@ -233,6 +239,17 @@ async def logo(logo: str):
 
 async def generate_guide():
     """Fetch schedule and write an updated guide.xml file."""
+    # Ensure channel metadata is available before building the guide.
+    # The channel list is populated in a background task, but at startup
+    # the first request for the guide may arrive before that task has
+    # completed.  Fetching the channels here prevents generating an empty
+    # guide and avoids a missing file when the route is first hit.
+    if not step_daddy.channels:
+        try:
+            await step_daddy.load_channels()
+        except Exception:
+            logger.exception("Failed to load channels before generating guide")
+
     schedule = await get_schedule()
     selected = get_selected_channel_ids()
 
@@ -263,22 +280,22 @@ async def generate_guide():
             return list(data.values())
         return []
 
-    utc = ZoneInfo("UTC")
+    tz = APP_TZ
 
     for day, categories in schedule.items():
-        date = parser.parse(day.split(" - ")[0], dayfirst=True)
+        date = parser.parse(day.split(" - ")[0], dayfirst=True).replace(tzinfo=tz)
         for category, events in categories.items():
             for event in events:
                 hour, minute = map(int, event["time"].split(":"))
-                start = date.replace(hour=hour, minute=minute, tzinfo=utc)
+                start = date.replace(hour=hour, minute=minute)
                 stop = start + timedelta(hours=1)
                 for channel in iter_channels(event.get("channels")) + iter_channels(event.get("channels2")):
                     ensure_channel(channel)
                     programme = SubElement(
                         root,
                         "programme",
-                        start=start.strftime("%Y%m%d%H%M%S +0000"),
-                        stop=stop.strftime("%Y%m%d%H%M%S +0000"),
+                        start=start.strftime("%Y%m%d%H%M%S %z"),
+                        stop=stop.strftime("%Y%m%d%H%M%S %z"),
                         channel=channel.get("channel_id"),
                     )
                     SubElement(programme, "title", lang="en").text = event.get("event")
@@ -293,14 +310,21 @@ async def generate_guide():
 async def guide():
     """Return the cached XMLTV guide, generating it if needed."""
     if not GUIDE_FILE.exists():
-        await generate_guide()
-    return FileResponse(GUIDE_FILE)
+        try:
+            await generate_guide()
+        except Exception:
+            logger.exception("Failed to generate guide on demand")
+    if GUIDE_FILE.exists():
+        return FileResponse(GUIDE_FILE)
+    # As a final fallback return an empty XMLTV skeleton so the client
+    # never receives a 404.
+    return Response("<tv generator-info-name=\"dlhd-proxy\"/>", media_type="application/xml")
 
 
 async def auto_update_guide():
     """Update guide.xml once per day at the configured time."""
     hour, minute = map(int, config.guide_update.split(":"))
-    tz = ZoneInfo(config.timezone)
+    tz = APP_TZ
     if not GUIDE_FILE.exists():
         try:
             await generate_guide()
