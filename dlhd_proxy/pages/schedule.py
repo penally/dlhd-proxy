@@ -100,7 +100,13 @@ class ScheduleState(rx.State):
 
 def event_card(event: EventItem) -> rx.Component:
     """Render a single schedule entry."""
-    local_dt = event["dt"].astimezone(ZoneInfo(config.timezone))
+    # The event already stores a timezone-aware ``datetime``. Calling
+    # ``astimezone`` on a Reflex ``Var`` wrapping a ``datetime`` results in a
+    # ``VarAttributeError`` during compilation as only a limited subset of
+    # ``datetime`` methods are supported. The build failure in the Dockerfile
+    # stemmed from this method call. Since the timestamp is already localized
+    # to ``config.timezone`` when events are loaded, we can use it directly.
+    local_dt = event["dt"]
     return rx.card(
         rx.heading(event["name"]),
         rx.hstack(
