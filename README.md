@@ -10,6 +10,7 @@ A self-hosted IPTV proxy built with [Reflex](https://reflex.dev), enabling you t
 - **🔎 Event Search**: Quickly find the right channel for live events or sports.
 - **📄 Playlist Integration**: Download the `playlist.m3u8` and use it with Jellyfin or any IPTV client.
 - **🗓️ XMLTV Guide**: Access scheduling information at `guide.xml` for use with media servers like Jellyfin.
+- **✅ Channel Filtering**: Select which channels appear in the playlist and generated guide.
 - **🕒 Daily Guide Updates**: Automatically refresh `guide.xml` once per day at a user-defined time.
 - **⚙️ Customizable Hosting**: Host the application locally or deploy it via Docker with various configuration options.
 
