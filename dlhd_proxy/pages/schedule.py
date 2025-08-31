@@ -16,6 +16,7 @@ class ChannelItem(TypedDict):
 class EventItem(TypedDict):
     name: str
     time: str
+    date: str
     dt: datetime
     category: str
     channels: List[ChannelItem]
@@ -72,8 +73,16 @@ class ScheduleState(rx.State):
                     channels = self.get_channels(event.get("channels"))
                     channels.extend(self.get_channels(event.get("channels2")))
                     channels.sort(key=lambda channel: channel["name"])
+                    date_str = event_dt.strftime("%a %b %d %Y")
                     self.events.append(
-                        EventItem(name=event["event"], time=time, dt=event_dt, category=category, channels=channels)
+                        EventItem(
+                            name=event["event"],
+                            time=time,
+                            date=date_str,
+                            dt=event_dt,
+                            category=category,
+                            channels=channels,
+                        )
                     )
         self.categories = dict(sorted(categories.items()))
         self.events.sort(key=lambda event: event["dt"])
@@ -100,24 +109,23 @@ class ScheduleState(rx.State):
 
 def event_card(event: EventItem) -> rx.Component:
     """Render a single schedule entry."""
-    # The event already stores a timezone-aware ``datetime``. Calling
-    # ``astimezone`` on a Reflex ``Var`` wrapping a ``datetime`` results in a
-    # ``VarAttributeError`` during compilation as only a limited subset of
-    # ``datetime`` methods are supported. The build failure in the Dockerfile
-    # stemmed from this method call. Since the timestamp is already localized
-    # to ``config.timezone`` when events are loaded, we can use it directly.
-    local_dt = event["dt"]
     return rx.card(
         rx.heading(event["name"]),
         rx.hstack(
-            rx.text(local_dt.strftime("%H:%M")),
-            rx.text(local_dt.strftime("%a %b %d %Y")),
+            rx.text(event["time"]),
+            rx.text(event["date"]),
             rx.badge(event["category"], margin_top="0.2rem"),
         ),
         rx.hstack(
             rx.foreach(
                 event["channels"],
-                lambda channel: rx.button(channel["name"], variant="surface", color_scheme="gray", size="1", on_click=rx.redirect(f"/watch/{channel['id']}")),
+                lambda channel: rx.button(
+                    channel["name"],
+                    variant="surface",
+                    color_scheme="gray",
+                    size="1",
+                    on_click=rx.redirect(f"/watch/{channel['id']}"),
+                ),
             ),
             wrap="wrap",
             margin_top="0.5rem",
