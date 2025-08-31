@@ -263,7 +263,6 @@ async def generate_guide():
             return list(data.values())
         return []
 
-    local_tz = ZoneInfo(config.timezone)
     utc = ZoneInfo("UTC")
 
     for day, categories in schedule.items():
@@ -271,8 +270,7 @@ async def generate_guide():
         for category, events in categories.items():
             for event in events:
                 hour, minute = map(int, event["time"].split(":"))
-                start_local = date.replace(hour=hour, minute=minute, tzinfo=local_tz)
-                start = start_local.astimezone(utc)
+                start = date.replace(hour=hour, minute=minute, tzinfo=utc)
                 stop = start + timedelta(hours=1)
                 for channel in iter_channels(event.get("channels")) + iter_channels(event.get("channels2")):
                     ensure_channel(channel)

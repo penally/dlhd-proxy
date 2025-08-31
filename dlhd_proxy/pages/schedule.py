@@ -60,6 +60,7 @@ class ScheduleState(rx.State):
         categories = {}
         days = await backend.get_schedule()
         tz = ZoneInfo(config.timezone)
+        utc = ZoneInfo("UTC")
         for day in days:
             name = day.split(" - ")[0]
             dt = parser.parse(name, dayfirst=True)
@@ -67,9 +68,12 @@ class ScheduleState(rx.State):
                 # Start with all categories unselected
                 categories[category] = False
                 for event in days[day][category]:
-                    time = event["time"]
-                    hour, minute = map(int, time.split(":"))
-                    event_dt = dt.replace(hour=hour, minute=minute).replace(tzinfo=tz)
+                    time_utc = event["time"]
+                    hour, minute = map(int, time_utc.split(":"))
+                    event_dt = (
+                        dt.replace(hour=hour, minute=minute, tzinfo=utc).astimezone(tz)
+                    )
+                    time = event_dt.strftime("%H:%M")
                     channels = self.get_channels(event.get("channels"))
                     channels.extend(self.get_channels(event.get("channels2")))
                     channels.sort(key=lambda channel: channel["name"])
