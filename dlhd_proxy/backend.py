@@ -1,6 +1,7 @@
 import os
 import asyncio
-from datetime import timedelta
+from pathlib import Path
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -10,7 +11,10 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from dlhd_proxy.step_daddy import StepDaddy, Channel
 from fastapi import Response, status, FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from rxconfig import config
 from .utils import urlsafe_base64_decode
+
+GUIDE_FILE = Path("guide.xml")
 
 
 fastapi_app = FastAPI()
@@ -106,9 +110,8 @@ async def logo(logo: str):
         return JSONResponse(content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@fastapi_app.get("/guide.xml")
-async def guide():
-    """Return an XMLTV guide generated from the schedule."""
+async def generate_guide():
+    """Fetch schedule and write an updated guide.xml file."""
     schedule = await step_daddy.schedule()
 
     root = Element("tv", attrib={"generator-info-name": "dlhd-proxy"})
@@ -136,12 +139,16 @@ async def guide():
             return list(data.values())
         return []
 
+    local_tz = ZoneInfo(config.timezone)
+    utc = ZoneInfo("UTC")
+
     for day, categories in schedule.items():
         date = parser.parse(day.split(" - ")[0], dayfirst=True)
         for category, events in categories.items():
             for event in events:
                 hour, minute = map(int, event["time"].split(":"))
-                start = date.replace(hour=hour, minute=minute, tzinfo=ZoneInfo("UTC"))
+                start_local = date.replace(hour=hour, minute=minute, tzinfo=local_tz)
+                start = start_local.astimezone(utc)
                 stop = start + timedelta(hours=1)
                 for channel in iter_channels(event.get("channels")) + iter_channels(event.get("channels2")):
                     ensure_channel(channel)
@@ -156,5 +163,36 @@ async def guide():
                     SubElement(programme, "category").text = category
 
     xml_data = tostring(root, encoding="utf-8", xml_declaration=True)
-    return Response(content=xml_data, media_type="application/xml")
+    GUIDE_FILE.write_bytes(xml_data)
+
+
+@fastapi_app.get("/guide.xml")
+async def guide():
+    """Return the cached XMLTV guide, generating it if needed."""
+    if not GUIDE_FILE.exists():
+        await generate_guide()
+    return FileResponse(GUIDE_FILE)
+
+
+async def auto_update_guide():
+    """Update guide.xml once per day at the configured time."""
+    hour, minute = map(int, config.guide_update.split(":"))
+    tz = ZoneInfo(config.timezone)
+    if not GUIDE_FILE.exists():
+        try:
+            await generate_guide()
+        except Exception:
+            pass
+    while True:
+        now = datetime.now(tz)
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        try:
+            await generate_guide()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            continue
 
