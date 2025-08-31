@@ -17,7 +17,7 @@ class State(rx.State):
         return [ch for ch in self.channels if self.search_query.lower() in ch.name.lower()]
 
     async def on_load(self):
-        self.channels = backend.get_channels()
+        self.channels = backend.get_enabled_channels()
 
 
 @rx.page("/", on_load=State.on_load)

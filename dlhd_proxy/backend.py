@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -15,11 +16,27 @@ from rxconfig import config
 from .utils import urlsafe_base64_decode
 
 GUIDE_FILE = Path("guide.xml")
+CHANNEL_FILE = Path("channels.json")
 
 
 fastapi_app = FastAPI()
 step_daddy = StepDaddy()
 client = httpx.AsyncClient(http2=True, timeout=None)
+
+
+def get_selected_channel_ids() -> set[str]:
+    """Return the set of enabled channel IDs."""
+    if CHANNEL_FILE.exists():
+        try:
+            return set(json.loads(CHANNEL_FILE.read_text()))
+        except Exception:
+            pass
+    return {ch.id for ch in step_daddy.channels}
+
+
+def set_selected_channel_ids(ids: list[str]) -> None:
+    """Persist the selected channel IDs to disk."""
+    CHANNEL_FILE.write_text(json.dumps(ids))
 
 
 @fastapi_app.get("/stream/{channel_id}.m3u8")
@@ -73,6 +90,11 @@ def get_channels():
     return step_daddy.channels
 
 
+def get_enabled_channels():
+    selected = get_selected_channel_ids()
+    return [ch for ch in step_daddy.channels if ch.id in selected]
+
+
 def get_channel(channel_id) -> Channel | None:
     if not channel_id or channel_id == "":
         return None
@@ -81,11 +103,48 @@ def get_channel(channel_id) -> Channel | None:
 
 @fastapi_app.get("/playlist.m3u8")
 def playlist():
-    return Response(content=step_daddy.playlist(), media_type="application/vnd.apple.mpegurl", headers={"Content-Disposition": "attachment; filename=playlist.m3u8"})
+    selected = get_selected_channel_ids()
+    channels = [ch for ch in step_daddy.channels if ch.id in selected]
+    return Response(
+        content=step_daddy.playlist(channels),
+        media_type="application/vnd.apple.mpegurl",
+        headers={"Content-Disposition": "attachment; filename=playlist.m3u8"},
+    )
 
 
 async def get_schedule():
-    return await step_daddy.schedule()
+    schedule = await step_daddy.schedule()
+    selected = get_selected_channel_ids()
+
+    def filter_channels(data):
+        if isinstance(data, list):
+            return [c for c in data if c.get("channel_id") in selected]
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if v.get("channel_id") in selected}
+        return []
+
+    filtered = {}
+    for day, categories in schedule.items():
+        for category, events in categories.items():
+            new_events = []
+            for event in events:
+                ch1 = filter_channels(event.get("channels"))
+                ch2 = filter_channels(event.get("channels2"))
+                if not ch1 and not ch2:
+                    continue
+                e = event.copy()
+                if ch1:
+                    e["channels"] = ch1
+                else:
+                    e.pop("channels", None)
+                if ch2:
+                    e["channels2"] = ch2
+                else:
+                    e.pop("channels2", None)
+                new_events.append(e)
+            if new_events:
+                filtered.setdefault(day, {})[category] = new_events
+    return filtered
 
 
 @fastapi_app.get("/logo/{logo}")
@@ -112,13 +171,16 @@ async def logo(logo: str):
 
 async def generate_guide():
     """Fetch schedule and write an updated guide.xml file."""
-    schedule = await step_daddy.schedule()
+    schedule = await get_schedule()
+    selected = get_selected_channel_ids()
 
     root = Element("tv", attrib={"generator-info-name": "dlhd-proxy"})
     added_channels = set()
 
     # Known channels with logos
     for ch in step_daddy.channels:
+        if ch.id not in selected:
+            continue
         channel_elem = SubElement(root, "channel", id=ch.id)
         SubElement(channel_elem, "display-name").text = ch.name
         if ch.logo:
@@ -127,7 +189,7 @@ async def generate_guide():
 
     def ensure_channel(channel: dict):
         cid = channel.get("channel_id")
-        if cid and cid not in added_channels:
+        if cid and cid in selected and cid not in added_channels:
             elem = SubElement(root, "channel", id=cid)
             SubElement(elem, "display-name").text = channel.get("channel_name", cid)
             added_channels.add(cid)
