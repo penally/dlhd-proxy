@@ -329,7 +329,9 @@ async def refresh():
 
 @fastapi_app.get("/logs")
 def logs():
-    if LOG_FILE.exists():
-        return FileResponse(LOG_FILE)
-    return JSONResponse({"error": "Log file not found"}, status_code=status.HTTP_404_NOT_FOUND)
+    """Return the application log file, creating it if missing."""
+    if not LOG_FILE.exists():
+        # Ensure an empty log file exists so the endpoint never 404s
+        LOG_FILE.touch()
+    return FileResponse(LOG_FILE)
 

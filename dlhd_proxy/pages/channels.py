@@ -12,18 +12,17 @@ class ChannelItem(TypedDict):
     country: Optional[str]
 
 
-COUNTRY_SUFFIXES = ["US", "UK", "Israel", "Spain"]
-
-
 def get_country(name: str) -> Optional[str]:
     parts = name.split()
     if not parts:
         return None
     last = parts[-1]
-    if last in COUNTRY_SUFFIXES:
+    # Handle names ending with quality suffixes like "HD" or "4K".
+    if re.fullmatch(r"HD|FHD|4K", last) and len(parts) >= 2:
+        last = parts[-2]
+    # Treat any alphabetical suffix as a country identifier.
+    if re.fullmatch(r"[A-Za-z]+", last):
         return last
-    if len(parts) >= 2 and parts[-2] in COUNTRY_SUFFIXES and re.fullmatch(r"HD|FHD|4K", last):
-        return parts[-2]
     return None
 
 

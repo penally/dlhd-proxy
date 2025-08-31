@@ -63,7 +63,8 @@ class ScheduleState(rx.State):
             name = day.split(" - ")[0]
             dt = parser.parse(name, dayfirst=True)
             for category in days[day]:
-                categories[category] = True
+                # Start with all categories unselected
+                categories[category] = False
                 for event in days[day][category]:
                     time = event["time"]
                     hour, minute = map(int, time.split(":"))
@@ -71,7 +72,9 @@ class ScheduleState(rx.State):
                     channels = self.get_channels(event.get("channels"))
                     channels.extend(self.get_channels(event.get("channels2")))
                     channels.sort(key=lambda channel: channel["name"])
-                    self.events.append(EventItem(name=event["event"], time=time, dt=event_dt, category=category, channels=channels))
+                    self.events.append(
+                        EventItem(name=event["event"], time=time, dt=event_dt, category=category, channels=channels)
+                    )
         self.categories = dict(sorted(categories.items()))
         self.events.sort(key=lambda event: event["dt"])
 
@@ -84,11 +87,14 @@ class ScheduleState(rx.State):
         now = datetime.now(ZoneInfo(config.timezone)) - timedelta(minutes=30)
         query = self.search_query.strip().lower()
 
+        active = [cat for cat, selected in self.categories.items() if selected]
+
         return [
-            event for event in self.events
-            if self.categories.get(event["category"], False)
-               and (not self.switch or event["dt"] > now)
-               and (query == "" or query in event["name"].lower())
+            event
+            for event in self.events
+            if (not active or event["category"] in active)
+            and (not self.switch or event["dt"] > now)
+            and (query == "" or query in event["name"].lower())
         ]
 
 
