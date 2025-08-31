@@ -1,8 +1,8 @@
 import reflex as rx
 from rxconfig import config
-from StepDaddyLiveHD import backend
-from StepDaddyLiveHD.components import navbar, MediaPlayer
-from StepDaddyLiveHD.step_daddy import Channel
+from dlhd_proxy import backend
+from dlhd_proxy.components import navbar, MediaPlayer
+from dlhd_proxy.step_daddy import Channel
 
 media_player = MediaPlayer.create
 

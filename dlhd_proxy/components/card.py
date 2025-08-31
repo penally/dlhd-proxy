@@ -1,5 +1,5 @@
 import reflex as rx
-from StepDaddyLiveHD.step_daddy import Channel
+from dlhd_proxy.step_daddy import Channel
 
 
 def card(channel: Channel) -> rx.Component:
