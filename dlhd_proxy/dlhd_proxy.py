@@ -18,6 +18,9 @@ class State(rx.State):
         return [ch for ch in self.channels if self.search_query.lower() in ch.name.lower()]
 
     async def load_channels(self):
+        # Avoid reloading if channels are already fetched.
+        if self.channels:
+            return
         self.is_loading = True
         self.channels = backend.get_enabled_channels()
         self.is_loading = False
@@ -64,8 +67,8 @@ def index() -> rx.Component:
                             channel_grid,
                             rx.center(rx.spinner(), height="50vh"),
                         ),
-                        on_mount=State.load_channels,
                     ),
+                    on_mount=State.load_channels,
                 ),
                 rx.mobile_and_tablet(
                     rx.cond(
