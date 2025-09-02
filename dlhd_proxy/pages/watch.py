@@ -85,7 +85,7 @@ def watch() -> rx.Component:
                             "info",
                         ),
                         rx.text(
-                            "Proxy content is disabled on this instance. Web Player won't work due to CORS.",
+                            "Proxy content is disabled on this instance. Web player may not work due to CORS.",
                         ),
                     ),
                     width="100%",
