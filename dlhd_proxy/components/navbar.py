@@ -2,7 +2,13 @@ import reflex as rx
 from rxconfig import config
 
 
-def navbar_icons_item(text: str, icon: str, url: str, external: bool = False) -> rx.Component:
+def navbar_icons_item(
+    text: str,
+    icon: str,
+    url: str,
+    external: bool = False,
+    new_tab: bool = False,
+) -> rx.Component:
     return rx.link(
         rx.hstack(
             rx.icon(icon, color="white"),
@@ -10,10 +16,17 @@ def navbar_icons_item(text: str, icon: str, url: str, external: bool = False) ->
         ),
         href=url,
         is_external=external,
+        target="_blank" if new_tab else "_self" if external else None,
     )
 
 
-def navbar_icons_menu_item(text: str, icon: str, url: str, external: bool = False) -> rx.Component:
+def navbar_icons_menu_item(
+    text: str,
+    icon: str,
+    url: str,
+    external: bool = False,
+    new_tab: bool = False,
+) -> rx.Component:
     return rx.link(
         rx.hstack(
             rx.icon(icon, size=24, color="white"),
@@ -21,6 +34,7 @@ def navbar_icons_menu_item(text: str, icon: str, url: str, external: bool = Fals
         ),
         href=url,
         is_external=external,
+        target="_blank" if new_tab else "_self" if external else None,
         padding="0.5em",
     )
 
@@ -60,9 +74,15 @@ def navbar(search=None) -> rx.Component:
                         navbar_icons_item("Channels", "list-checks", "/channels"),
                         navbar_icons_item("Refresh", "refresh-cw", "/refresh"),
                         navbar_icons_item("playlist.m3u8", "file-down", "/playlist"),
-                        navbar_icons_item("guide.xml", "file-text", "/guide.xml"),
-                        navbar_icons_item("Logs", "bug", "/logs"),
-                        navbar_icons_item("Github", "github", "https://github.com/eribbey/dlhd-proxy", True),
+                        navbar_icons_item("guide.xml", "file-text", "/guide.xml", True),
+                        navbar_icons_item("Logs", "bug", "/logs", True),
+                        navbar_icons_item(
+                            "Github",
+                            "github",
+                            "https://github.com/eribbey/dlhd-proxy",
+                            True,
+                            True,
+                        ),
                         spacing="6",
                     ),
                     justify=rx.breakpoints(initial="between"),
@@ -101,9 +121,15 @@ def navbar(search=None) -> rx.Component:
                                 navbar_icons_menu_item("Channels", "list-checks", "/channels"),
                                 navbar_icons_menu_item("Refresh", "refresh-cw", "/refresh"),
                                 navbar_icons_menu_item("playlist.m3u8", "file-down", "/playlist"),
-                                navbar_icons_menu_item("guide.xml", "file-text", "/guide.xml"),
-                                navbar_icons_menu_item("Logs", "bug", "/logs"),
-                                navbar_icons_menu_item("Github", "github", "https://github.com/eribbey/dlhd-proxy", True),
+                                navbar_icons_menu_item("guide.xml", "file-text", "/guide.xml", True),
+                                navbar_icons_menu_item("Logs", "bug", "/logs", True),
+                                navbar_icons_menu_item(
+                                    "Github",
+                                    "github",
+                                    "https://github.com/eribbey/dlhd-proxy",
+                                    True,
+                                    True,
+                                ),
                             ),
                             justify="end",
                         ),
