@@ -12,6 +12,15 @@ class ChannelItem(TypedDict):
 
 class ChannelState(rx.State):
     channels: List[ChannelItem] = []
+    search_query: str = ""
+
+    @rx.var
+    def filtered_channels(self) -> List[ChannelItem]:
+        if not self.search_query:
+            return self.channels
+        return [
+            ch for ch in self.channels if self.search_query.lower() in ch["name"].lower()
+        ]
 
     async def on_load(self):
         selected = backend.get_selected_channel_ids()
@@ -67,17 +76,25 @@ def channels() -> rx.Component:
                             width="100%",
                         ),
                         rx.divider(margin_y="1rem"),
+                        rx.input(
+                            rx.input.slot(rx.icon("search")),
+                            placeholder="Search channels...",
+                            on_change=ChannelState.set_search_query,
+                            value=ChannelState.search_query,
+                            width="100%",
+                            margin_bottom="1rem",
+                        ),
                         rx.scroll_area(
-                            rx.vstack(
+                            rx.grid(
                                 rx.foreach(
-                                    ChannelState.channels,
+                                    ChannelState.filtered_channels,
                                     lambda ch: rx.checkbox(
                                         ch["name"],
                                         checked=ch["enabled"],
                                         on_change=lambda v, cid=ch["id"]: ChannelState.set_channel(cid, v),
-                                        width="100%",
                                     ),
                                 ),
+                                grid_template_columns="repeat(auto-fill, minmax(200px, 1fr))",
                                 spacing="2",
                                 width="100%",
                             ),
