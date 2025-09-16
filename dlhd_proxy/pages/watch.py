@@ -16,11 +16,12 @@ media_player = MediaPlayer.create
 class WatchState(rx.State):
     """State for the channel watch page."""
 
-    channel_id: str = ""
-
     @rx.var
     def channel(self) -> Optional[Channel]:
-        return backend.get_channel(str(self.channel_id))
+        channel_id = self.channel_id
+        if not channel_id:
+            return None
+        return backend.get_channel(channel_id)
 
     @rx.var
     def has_channel(self) -> bool:
@@ -28,7 +29,10 @@ class WatchState(rx.State):
 
     @rx.var
     def url(self) -> str:
-        return f"{config.api_url}/stream/{self.channel_id}.m3u8"
+        channel_id = self.channel_id
+        if not channel_id:
+            return ""
+        return f"{config.api_url}/stream/{channel_id}.m3u8"
 
     @rx.var
     def is_loading(self) -> bool:
