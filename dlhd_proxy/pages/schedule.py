@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, TypedDict
+from typing import Dict, List, TypedDict
 from zoneinfo import ZoneInfo
 
 import reflex as rx
@@ -26,6 +26,11 @@ class EventItem(TypedDict):
     dt: datetime
     category: str
     channels: List[ChannelItem]
+
+
+class CategoryFilter(TypedDict):
+    name: str
+    selected: bool
 
 
 class ScheduleState(rx.State):
@@ -151,6 +156,13 @@ class ScheduleState(rx.State):
             and (query == "" or query in event["name"].lower())
         ]
 
+    @rx.var
+    def category_filters(self) -> List[CategoryFilter]:
+        return [
+            CategoryFilter(name=name, selected=selected)
+            for name, selected in self.categories.items()
+        ]
+
 
 def event_card(event: EventItem) -> rx.Component:
     """Render a single schedule entry."""
@@ -179,10 +191,11 @@ def event_card(event: EventItem) -> rx.Component:
     )
 
 
-def category_badge(category: Tuple[str, bool]) -> rx.Component:
+def category_badge(category: CategoryFilter) -> rx.Component:
     """Render an interactive filter badge for a category."""
 
-    name, selected = category
+    name = category["name"]
+    selected = category["selected"]
     return rx.badge(
         name,
         color_scheme=rx.cond(selected, "red", "gray"),
@@ -213,7 +226,9 @@ def schedule() -> rx.Component:
                             ),
                             rx.hstack(
                                 rx.text("Filter by tag:"),
-                                rx.foreach(ScheduleState.categories, category_badge),
+                                rx.foreach(
+                                    ScheduleState.category_filters, category_badge
+                                ),
                                 spacing="2",
                                 wrap="wrap",
                                 margin_top="0.7rem",
