@@ -6,14 +6,16 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import re
 import logging
+from urllib.parse import urlparse
 
 import httpx
 from dateutil import parser
+from fastapi import FastAPI, Request, Response, status
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from dlhd_proxy.step_daddy import StepDaddy, Channel
-from fastapi import Response, status, FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from dlhd_proxy.step_daddy import Channel, StepDaddy
 from rxconfig import config
 from .utils import urlsafe_base64_decode
 
@@ -42,22 +44,53 @@ async def not_found_handler(request: Request, exc):
 
 
 step_daddy = StepDaddy()
-client = httpx.AsyncClient(http2=True, timeout=None)
+client = httpx.AsyncClient(
+    http2=True,
+    timeout=httpx.Timeout(15.0, read=60.0),
+    follow_redirects=True,
+)
+
+
+@fastapi_app.on_event("startup")
+async def _startup() -> None:
+    """Ensure we have an initial channel list on boot."""
+    if not step_daddy.channels:
+        try:
+            await step_daddy.load_channels()
+        except Exception:
+            logger.exception("Initial channel load failed")
+
+
+@fastapi_app.on_event("shutdown")
+async def _shutdown() -> None:
+    """Close shared HTTP clients cleanly."""
+    await client.aclose()
+    await step_daddy.aclose()
 
 
 def get_selected_channel_ids() -> set[str]:
     """Return the set of enabled channel IDs."""
     if CHANNEL_FILE.exists():
         try:
-            return set(json.loads(CHANNEL_FILE.read_text()))
-        except Exception:
-            pass
+            raw = json.loads(CHANNEL_FILE.read_text())
+            if isinstance(raw, list):
+                return {str(ch) for ch in raw}
+            logger.warning("Channel selection file contained unexpected data: %s", type(raw))
+        except json.JSONDecodeError:
+            logger.warning("Channel selection file is not valid JSON; using all channels")
+        except OSError as exc:
+            logger.warning("Unable to read channel selection file: %s", exc)
     return {ch.id for ch in step_daddy.channels}
 
 
 def set_selected_channel_ids(ids: list[str]) -> None:
     """Persist the selected channel IDs and refresh the guide."""
-    CHANNEL_FILE.write_text(json.dumps(ids))
+    cleaned = sorted({str(cid) for cid in ids if cid})
+    try:
+        CHANNEL_FILE.write_text(json.dumps(cleaned))
+    except OSError as exc:
+        logger.exception("Failed to persist channel selection")
+        raise RuntimeError("Unable to save channel selection") from exc
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(generate_guide())
@@ -67,15 +100,24 @@ def set_selected_channel_ids(ids: list[str]) -> None:
 
 @fastapi_app.get("/stream/{channel_id}.m3u8")
 async def stream(channel_id: str):
-    try:
-        return Response(
-            content=await step_daddy.stream(channel_id),
-            media_type="application/vnd.apple.mpegurl",
-            headers={f"Content-Disposition": f"attachment; filename={channel_id}.m3u8"}
+    if not channel_id:
+        return JSONResponse(
+            content={"error": "Channel id is required"},
+            status_code=status.HTTP_400_BAD_REQUEST,
         )
-    except IndexError:
-        logger.error("Stream not found: %s", channel_id)
-        return JSONResponse(content={"error": "Stream not found"}, status_code=status.HTTP_404_NOT_FOUND)
+    try:
+        playlist_body = await step_daddy.stream(channel_id)
+        return Response(
+            content=playlist_body,
+            media_type="application/vnd.apple.mpegurl",
+            headers={"Content-Disposition": f"attachment; filename={channel_id}.m3u8"},
+        )
+    except ValueError as exc:
+        logger.warning("Stream not available for %s: %s", channel_id, exc)
+        return JSONResponse(
+            content={"error": "Stream not found"},
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     except Exception as e:
         logger.exception("Stream error for %s", channel_id)
         return JSONResponse(content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -97,14 +139,43 @@ async def key(url: str, host: str):
 @fastapi_app.get("/content/{path}")
 async def content(path: str):
     try:
-        async def proxy_stream():
-            async with client.stream("GET", step_daddy.content_url(path), timeout=60) as response:
-                async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
-                    yield chunk
-        return StreamingResponse(proxy_stream(), media_type="application/octet-stream")
-    except Exception as e:
-        logger.exception("Content proxy failed")
-        return JSONResponse(content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        url = step_daddy.content_url(path)
+    except Exception as exc:
+        logger.warning("Invalid content path provided: %s", exc)
+        return JSONResponse(
+            content={"error": "Invalid content request"},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        response = await client.send(
+            client.build_request("GET", url),
+            stream=True,
+            timeout=60,
+        )
+    except httpx.RequestError as exc:
+        logger.exception("Content proxy request failed for %s", url)
+        return JSONResponse(
+            content={"error": "Unable to reach upstream content"},
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if response.status_code >= 400:
+        logger.warning(
+            "Upstream content request returned %s for %s", response.status_code, url
+        )
+        await response.aclose()
+        return JSONResponse(
+            content={"error": "Upstream content returned an error"},
+            status_code=response.status_code,
+        )
+
+    media_type = response.headers.get("content-type", "application/octet-stream")
+    return StreamingResponse(
+        response.aiter_bytes(chunk_size=64 * 1024),
+        media_type=media_type,
+        background=BackgroundTask(response.aclose),
+    )
 
 
 async def update_channels():
@@ -112,24 +183,30 @@ async def update_channels():
         try:
             await step_daddy.load_channels()
             logger.info("Channels refreshed")
-            await asyncio.sleep(300)
         except asyncio.CancelledError:
-            continue
+            logger.info("Channel refresh task cancelled")
+            break
         except Exception:
             logger.exception("Failed to update channels")
+            await asyncio.sleep(60)
+            continue
+        await asyncio.sleep(300)
 
 
-def get_channels():
-    return step_daddy.channels
+def get_channels() -> list[Channel]:
+    """Return a copy of the loaded channels."""
+    return list(step_daddy.channels)
 
 
-def get_enabled_channels():
+def get_enabled_channels() -> list[Channel]:
+    """Return only the channels that are currently enabled."""
     selected = get_selected_channel_ids()
     return [ch for ch in step_daddy.channels if ch.id in selected]
 
 
-def get_channel(channel_id) -> Channel | None:
-    if not channel_id or channel_id == "":
+def get_channel(channel_id: str) -> Channel | None:
+    """Return the channel with the given ID if it exists."""
+    if not channel_id:
         return None
     return next((channel for channel in step_daddy.channels if channel.id == channel_id), None)
 
@@ -146,7 +223,11 @@ def playlist():
 
 
 async def get_schedule():
-    schedule = await step_daddy.schedule()
+    try:
+        schedule = await step_daddy.schedule()
+    except Exception:
+        logger.exception("Failed to fetch upstream schedule")
+        return {}
     selected = get_selected_channel_ids()
 
     # Build lookup maps for resolving channel name/id mismatches.
@@ -211,24 +292,63 @@ async def get_schedule():
 
 @fastapi_app.get("/logo/{logo}")
 async def logo(logo: str):
-    url = urlsafe_base64_decode(logo)
-    file = url.split("/")[-1]
-    if not os.path.exists("./logo-cache"):
-        os.makedirs("./logo-cache")
-    if os.path.exists(f"./logo-cache/{file}"):
-        return FileResponse(f"./logo-cache/{file}")
     try:
-        response = await client.get(url, headers={"user-agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:137.0) Gecko/20100101 Firefox/137.0"})
-        if response.status_code == 200:
-            with open(f"./logo-cache/{file}", "wb") as f:
-                f.write(response.content)
-            return FileResponse(f"./logo-cache/{file}")
-        else:
-            return JSONResponse(content={"error": "Logo not found"}, status_code=status.HTTP_404_NOT_FOUND)
+        url = urlsafe_base64_decode(logo)
+    except Exception as exc:
+        logger.warning("Invalid logo token provided: %s", exc)
+        return JSONResponse(
+            content={"error": "Invalid logo reference"},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    filename = Path(urlparse(url).path).name or "logo"
+    logo_dir = Path("logo-cache")
+    try:
+        logo_dir.mkdir(exist_ok=True)
+    except OSError as exc:
+        logger.exception("Failed to create logo cache directory")
+        return JSONResponse(
+            content={"error": "Internal server error"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    cache_path = logo_dir / filename
+    if cache_path.exists():
+        return FileResponse(cache_path)
+
+    try:
+        response = await client.get(
+            url,
+            headers={
+                "user-agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:137.0) Gecko/20100101 Firefox/137.0"
+            },
+        )
     except httpx.ConnectTimeout:
-        return JSONResponse(content={"error": "Request timed out"}, status_code=status.HTTP_504_GATEWAY_TIMEOUT)
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return JSONResponse(
+            content={"error": "Request timed out"},
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        )
+    except httpx.RequestError as exc:
+        logger.exception("Logo download failed for %s", url)
+        return JSONResponse(
+            content={"error": "Failed to download logo"},
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if response.status_code != status.HTTP_200_OK:
+        return JSONResponse(
+            content={"error": "Logo not found"},
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        cache_path.write_bytes(response.content)
+    except OSError:
+        logger.exception("Failed to cache logo to disk")
+        media_type = response.headers.get("content-type", "image/png")
+        return Response(content=response.content, media_type=media_type)
+
+    return FileResponse(cache_path)
 
 
 async def generate_guide():
@@ -269,7 +389,15 @@ async def generate_guide():
         date = parser.parse(day.split(" - ")[0], dayfirst=True)
         for category, events in categories.items():
             for event in events:
-                hour, minute = map(int, event["time"].split(":"))
+                time_str = event.get("time")
+                if not time_str:
+                    logger.debug("Skipping schedule entry without a start time: %s", event)
+                    continue
+                try:
+                    hour, minute = map(int, time_str.split(":"))
+                except ValueError:
+                    logger.debug("Invalid schedule time '%s' for event %s", time_str, event)
+                    continue
                 start = date.replace(hour=hour, minute=minute, tzinfo=utc)
                 stop = start + timedelta(hours=1)
                 for channel in iter_channels(event.get("channels")) + iter_channels(event.get("channels2")):
@@ -281,7 +409,7 @@ async def generate_guide():
                         stop=stop.strftime("%Y%m%d%H%M%S +0000"),
                         channel=channel.get("channel_id"),
                     )
-                    SubElement(programme, "title", lang="en").text = event.get("event")
+                    SubElement(programme, "title", lang="en").text = event.get("event") or "Unknown"
                     SubElement(programme, "category").text = category
 
     xml_data = tostring(root, encoding="utf-8", xml_declaration=True)
@@ -305,7 +433,7 @@ async def auto_update_guide():
         try:
             await generate_guide()
         except Exception:
-            pass
+            logger.exception("Initial guide generation failed")
     while True:
         now = datetime.now(tz)
         target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)

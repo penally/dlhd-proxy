@@ -1,11 +1,17 @@
-import reflex as rx
-from typing import Dict, List, TypedDict
-from zoneinfo import ZoneInfo
+import logging
 from datetime import datetime, timedelta
+from typing import Dict, List, Tuple, TypedDict
+from zoneinfo import ZoneInfo
+
+import reflex as rx
 from dateutil import parser
+
 from dlhd_proxy import backend
 from dlhd_proxy.components import navbar
 from rxconfig import config
+
+
+logger = logging.getLogger(__name__)
 
 
 class ChannelItem(TypedDict):
@@ -23,71 +29,106 @@ class EventItem(TypedDict):
 
 
 class ScheduleState(rx.State):
+    """State management for the schedule page."""
     events: List[EventItem] = []
     categories: Dict[str, bool] = {}
     switch: bool = True
     search_query: str = ""
 
     @staticmethod
-    def get_channels(channels: dict) -> List[ChannelItem]:
-        channel_list = []
+    def get_channels(channels: object) -> List[ChannelItem]:
+        """Normalise the channel data returned by the schedule API."""
+
+        channel_list: List[ChannelItem] = []
         if isinstance(channels, list):
-            for channel in channels:
-                try:
-                    channel_list.append(ChannelItem(name=channel["channel_name"], id=channel["channel_id"]))
-                except:
-                    continue
+            iterable = channels
         elif isinstance(channels, dict):
-            for channel_dic in channels:
-                try:
-                    channel_list.append(ChannelItem(name=channels[channel_dic]["channel_name"], id=channels[channel_dic]["channel_id"]))
-                except:
-                    continue
+            iterable = channels.values()
+        else:
+            return channel_list
+
+        for channel in iterable:
+            if not isinstance(channel, dict):
+                continue
+            name = channel.get("channel_name")
+            cid = channel.get("channel_id")
+            if not name or not cid:
+                continue
+            channel_list.append(ChannelItem(name=str(name), id=str(cid)))
         return channel_list
 
-    def toggle_category(self, category):
+    @rx.event
+    def toggle_category(self, category: str) -> None:
+        """Toggle the given category filter."""
+
         self.categories[category] = not self.categories.get(category, False)
 
-    def double_category(self, category):
+    @rx.event
+    def double_category(self, category: str) -> None:
+        """Enable only the selected category."""
+
         for cat in self.categories:
-            if cat != category:
-                self.categories[cat] = False
-            else:
-                self.categories[cat] = True
+            self.categories[cat] = cat == category
+
+    @rx.event
+    def set_search_query(self, value: str) -> None:
+        """Update the event search query."""
+
+        self.search_query = value
 
     async def on_load(self):
         self.events = []
-        categories = {}
-        days = await backend.get_schedule()
+        categories: Dict[str, bool] = {}
+        schedule = await backend.get_schedule()
+        if not isinstance(schedule, dict):
+            logger.warning("Schedule payload was not a dictionary: %s", type(schedule))
+            self.categories = {}
+            return
+
         tz = ZoneInfo(config.timezone)
         utc = ZoneInfo("UTC")
-        for day in days:
-            name = day.split(" - ")[0]
-            dt = parser.parse(name, dayfirst=True)
-            for category in days[day]:
-                # Start with all categories unselected
-                categories[category] = False
-                for event in days[day][category]:
-                    time_utc = event["time"]
-                    hour, minute = map(int, time_utc.split(":"))
-                    event_dt = (
-                        dt.replace(hour=hour, minute=minute, tzinfo=utc).astimezone(tz)
-                    )
-                    time = event_dt.strftime("%H:%M")
+
+        for day, groups in schedule.items():
+            if not isinstance(groups, dict):
+                continue
+            name = str(day).split(" - ")[0]
+            try:
+                dt = parser.parse(name, dayfirst=True)
+            except (ValueError, TypeError) as exc:
+                logger.debug("Skipping schedule day %s: %s", day, exc)
+                continue
+
+            for category, events in groups.items():
+                categories.setdefault(category, False)
+                if not isinstance(events, list):
+                    continue
+                for event in events:
+                    if not isinstance(event, dict):
+                        continue
+                    time_utc = event.get("time")
+                    if not time_utc:
+                        continue
+                    try:
+                        hour, minute = map(int, str(time_utc).split(":"))
+                    except ValueError:
+                        logger.debug("Invalid event time '%s'", time_utc)
+                        continue
+                    event_dt = dt.replace(hour=hour, minute=minute, tzinfo=utc).astimezone(tz)
                     channels = self.get_channels(event.get("channels"))
                     channels.extend(self.get_channels(event.get("channels2")))
                     channels.sort(key=lambda channel: channel["name"])
                     date_str = event_dt.strftime("%a %b %d %Y")
                     self.events.append(
                         EventItem(
-                            name=event["event"],
-                            time=time,
+                            name=str(event.get("event") or "Unknown"),
+                            time=event_dt.strftime("%H:%M"),
                             date=date_str,
                             dt=event_dt,
-                            category=category,
+                            category=str(category),
                             channels=channels,
                         )
                     )
+
         self.categories = dict(sorted(categories.items()))
         self.events.sort(key=lambda event: event["dt"])
 
@@ -138,18 +179,17 @@ def event_card(event: EventItem) -> rx.Component:
     )
 
 
-def category_badge(category) -> rx.Component:
+def category_badge(category: Tuple[str, bool]) -> rx.Component:
+    """Render an interactive filter badge for a category."""
+
+    name, selected = category
     return rx.badge(
-        category[0],
-        color_scheme=rx.cond(
-            category[1],
-            "red",
-            "gray",
-        ),
+        name,
+        color_scheme=rx.cond(selected, "red", "gray"),
         _hover={"color": "white"},
         style={"cursor": "pointer"},
-        on_click=lambda: ScheduleState.toggle_category(category[0]),
-        on_double_click=lambda: ScheduleState.double_category(category[0]),
+        on_click=lambda: ScheduleState.toggle_category(name),
+        on_double_click=lambda: ScheduleState.double_category(name),
         size="2",
     )
 

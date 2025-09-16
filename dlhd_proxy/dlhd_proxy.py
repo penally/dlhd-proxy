@@ -1,8 +1,11 @@
 import reflex as rx
-import dlhd_proxy.pages
 from typing import List
+
+import reflex as rx
+
+import dlhd_proxy.pages
 from dlhd_proxy import backend
-from dlhd_proxy.components import navbar, card
+from dlhd_proxy.components import card, navbar
 from dlhd_proxy.step_daddy import Channel
 
 

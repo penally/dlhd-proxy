@@ -45,7 +45,10 @@ class ChannelState(rx.State):
 
     async def save(self):
         ids = [ch["id"] for ch in self.channels if ch["enabled"]]
-        backend.set_selected_channel_ids(ids)
+        try:
+            backend.set_selected_channel_ids(ids)
+        except Exception as exc:
+            return rx.toast(f"Failed to save channels: {exc}", color_scheme="red")
         return rx.toast("Channel selection saved")
 
 

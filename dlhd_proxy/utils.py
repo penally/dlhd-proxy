@@ -1,65 +1,97 @@
+import base64
+import binascii
+import json
 import os
 import re
-import base64
-import json
+from typing import Any, Dict
 
 key_bytes = os.urandom(64)
 
 
-def encrypt(input_string: str):
-    input_bytes = input_string.encode()
+def encrypt(value: str) -> str:
+    """Return an obfuscated, URL-safe representation of ``value``."""
+
+    input_bytes = value.encode("utf-8")
     result = xor(input_bytes)
-    return base64.urlsafe_b64encode(result).decode().rstrip('=')
+    return base64.urlsafe_b64encode(result).decode("utf-8").rstrip("=")
 
 
-def decrypt(input_string: str):
-    padding_needed = 4 - (len(input_string) % 4)
-    if padding_needed:
-        input_string += '=' * padding_needed
-    input_bytes = base64.urlsafe_b64decode(input_string)
+def decrypt(value: str) -> str:
+    """Reverse :func:`encrypt` and return the original string."""
+
+    padding_needed = (-len(value)) % 4
+    padded = value + ("=" * padding_needed)
+    try:
+        input_bytes = base64.b64decode(
+            padded,
+            altchars=b'-_',
+            validate=True,
+        )
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("Encrypted value is not valid base64") from exc
     result = xor(input_bytes)
-    return result.decode()
+    return result.decode("utf-8")
 
 
-def xor(input_bytes):
-    return bytes([input_bytes[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(input_bytes))])
+def xor(input_bytes: bytes) -> bytes:
+    """Apply a repeating XOR mask to ``input_bytes``."""
+
+    return bytes(
+        input_bytes[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(input_bytes))
+    )
 
 
-def urlsafe_base64(input_string: str) -> str:
-    input_bytes = input_string.encode("utf-8")
-    base64_bytes = base64.urlsafe_b64encode(input_bytes)
-    base64_string = base64_bytes.decode("utf-8")
-    return base64_string
+def urlsafe_base64(value: str) -> str:
+    """Encode ``value`` as a URL-safe base64 string."""
+
+    input_bytes = value.encode("utf-8")
+    return base64.urlsafe_b64encode(input_bytes).decode("utf-8")
 
 
-def urlsafe_base64_decode(base64_string: str) -> str:
-    padding = '=' * (-len(base64_string) % 4)
-    base64_string_padded = base64_string + padding
-    base64_bytes = base64_string_padded.encode("utf-8")
-    decoded_bytes = base64.urlsafe_b64decode(base64_bytes)
+def urlsafe_base64_decode(value: str) -> str:
+    """Decode a URL-safe base64 encoded string."""
+
+    padding = "=" * (-len(value) % 4)
+    try:
+        decoded_bytes = base64.b64decode(
+            (value + padding).encode("utf-8"),
+            altchars=b'-_',
+            validate=True,
+        )
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("Input is not valid base64") from exc
     return decoded_bytes.decode("utf-8")
 
 
 def extract_and_decode_var(var_name: str, response: str) -> str:
+    """Extract an ``atob`` encoded JavaScript variable from ``response``."""
+
     pattern = rf'var\s+{re.escape(var_name)}\s*=\s*atob\("([^"]+)"\);'
     matches = re.findall(pattern, response)
     if not matches:
         raise ValueError(f"Variable '{var_name}' not found in response")
-    b64 = matches[-1]
-    return base64.b64decode(b64).decode("utf-8")
+    try:
+        return base64.b64decode(matches[-1], validate=True).decode("utf-8")
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError(f"Variable '{var_name}' is not valid base64") from exc
 
 
-def decode_bundle(bundle: str) -> dict:
-    decoded_bundle = base64.b64decode(bundle).decode("utf-8")
+def decode_bundle(bundle: str) -> Dict[str, Any]:
+    """Decode the XJZ bundle returned by the upstream site."""
+
+    try:
+        decoded_bundle = base64.b64decode(bundle, validate=True).decode("utf-8")
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("Bundle is not valid base64") from exc
     data = json.loads(decoded_bundle)
-    decoded = {}
-    for k, v in data.items():
-        if isinstance(v, str):
+    decoded: Dict[str, Any] = {}
+    for key, value in data.items():
+        if isinstance(value, str):
             try:
-                pad = '=' * (-len(v) % 4)
-                decoded[k] = base64.b64decode(v + pad).decode("utf-8")
-            except Exception:
-                decoded[k] = v
+                pad = "=" * (-len(value) % 4)
+                decoded[key] = base64.b64decode(value + pad, validate=True).decode("utf-8")
+            except (ValueError, binascii.Error):
+                decoded[key] = value
         else:
-            decoded[k] = v
+            decoded[key] = value
     return decoded

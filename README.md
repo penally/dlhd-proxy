@@ -12,54 +12,27 @@ This is a fork of a self-hosted IPTV proxy built with [Reflex](https://reflex.de
 - **🗓️ XMLTV Guide**: Access scheduling information at `guide.xml` for use with media servers like Jellyfin.
 - **✅ Channel Filtering**: Select which channels appear in the playlist and generated guide.
 - **🕒 Daily Guide Updates**: Automatically refresh `guide.xml` once per day at a user-defined time.
-- **⚙️ Customizable Hosting**: Host the application locally or deploy it via Docker with various configuration options.
+- **⚙️ Docker-First Hosting**: Run the application using Docker or Docker Compose with flexible configuration options.
 
 ---
 
-## 🐳 Docker Installation (Recommended)
+## 🐳 Docker Installation (Required)
 
-> ⚠️ **Important:** If you plan to use this application across your local network (LAN), you must set `API_URL` to the **local IP address** of the device hosting the server in `.env`.
+> ⚠️ **Important:** When exposing the application on your local network (LAN), set `API_URL` in your `.env` file to the **local IP address** of the server hosting the container.
 
-1. Make sure you have Docker and Docker Compose installed on your system.
-2. Clone the repository and navigate into the project directory:
-3. Run the following command to start the application:
+1. Install Docker and Docker Compose.
+2. Clone the repository and change into the project directory.
+3. Start the application with Docker Compose:
    ```bash
    docker compose up -d
    ```
 
-Plain Docker:
+To run with plain Docker:
+
 ```bash
 docker build -t dlhd-proxy .
 docker run -p 3000:3000 dlhd-proxy
 ```
-
----
-
-## 🖥️ Local Installation
-
-1. Install Python 🐍 (tested with version 3.11).
-2. Clone the repository and navigate into the project directory:
-   ```bash
-   git clone https://github.com/eribbey/dlhd-proxy
-   cd dlhd-proxy
-   ```
-3. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-4. Install the dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-5. Initialize Reflex:
-   ```bash
-   reflex init
-   ```
-6. Run the application in production mode:
-   ```bash
-   reflex run --env prod
-   ```
 
 ---
 
