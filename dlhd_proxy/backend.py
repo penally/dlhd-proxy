@@ -358,6 +358,7 @@ async def generate_guide():
 
     root = Element("tv", attrib={"generator-info-name": "dlhd-proxy"})
     added_channels = set()
+    display_names = {ch.id: ch.name for ch in step_daddy.channels}
 
     # Known channels with logos
     for ch in step_daddy.channels:
@@ -373,7 +374,8 @@ async def generate_guide():
         cid = channel.get("channel_id")
         if cid and cid in selected and cid not in added_channels:
             elem = SubElement(root, "channel", id=cid)
-            SubElement(elem, "display-name").text = channel.get("channel_name", cid)
+            display_name = display_names.get(cid) or channel.get("channel_name", cid)
+            SubElement(elem, "display-name").text = display_name
             added_channels.add(cid)
 
     def iter_channels(data):
