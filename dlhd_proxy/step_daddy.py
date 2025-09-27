@@ -124,9 +124,28 @@ class StepDaddy:
                             if cid not in channels:
                                 channels[cid] = self._channel_from_schedule(cid, name)
 
-        self.channels = sorted(
-            channels.values(), key=lambda channel: (channel.name.startswith("18"), channel.name)
+        sorted_channels = sorted(
+            channels.values(),
+            key=lambda channel: (channel.name.startswith("18"), channel.name, channel.id),
         )
+        self._enumerate_duplicate_names(sorted_channels)
+        self.channels = sorted_channels
+
+    @staticmethod
+    def _enumerate_duplicate_names(channels: List[Channel]) -> None:
+        """Append numeric suffixes to channels that share a name."""
+
+        counts: Dict[str, int] = {}
+        for channel in channels:
+            counts[channel.name] = counts.get(channel.name, 0) + 1
+
+        seen: Dict[str, int] = {}
+        for channel in channels:
+            name = channel.name
+            if counts.get(name, 0) > 1:
+                index = seen.get(name, 0) + 1
+                seen[name] = index
+                channel.name = f"{name} ({index})"
 
     def _get_channel(self, channel_data: Iterable[str]) -> Channel:
         """Return a channel parsed from the site navigation."""
