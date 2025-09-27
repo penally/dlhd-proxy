@@ -31,16 +31,24 @@ class State(rx.State):
 
 @rx.page("/")
 def index() -> rx.Component:
-    channel_grid = rx.grid(
+    channel_grid = rx.flex(
         rx.foreach(
             State.filtered_channels,
-            lambda channel: card(channel),
+            lambda channel: rx.box(
+                card(channel),
+                width="100%",
+                max_width="320px",
+                min_width="240px",
+                style={"flex": "1 1 260px"},
+            ),
         ),
-        grid_template_columns="repeat(auto-fill, minmax(250px, 1fr))",
+        wrap="wrap",
+        justify="center",
+        align="stretch",
         spacing=rx.breakpoints(
             initial="4",
             sm="6",
-            lg="9"
+            lg="7",
         ),
         width="100%",
     )

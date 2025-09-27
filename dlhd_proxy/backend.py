@@ -20,7 +20,11 @@ from rxconfig import config
 from .utils import urlsafe_base64_decode
 
 GUIDE_FILE = Path("guide.xml")
-CHANNEL_FILE = Path("channels.json")
+DATA_DIR = Path(os.getenv("CHANNEL_DATA_DIR", "data"))
+CHANNEL_FILE = Path(
+    os.getenv("CHANNEL_FILE", str(DATA_DIR / "selected_channels.json"))
+)
+LEGACY_CHANNEL_FILE = Path("channels.json")
 LOG_FILE = Path("dlhd_proxy.log")
 
 logging.basicConfig(
@@ -68,18 +72,41 @@ async def _shutdown() -> None:
     await step_daddy.aclose()
 
 
+def _load_channel_file(path: Path) -> set[str] | None:
+    """Return the channel IDs stored at *path* or ``None`` on error."""
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        logger.warning("Channel selection file %s is not valid JSON", path)
+        return None
+    except OSError as exc:
+        logger.warning("Unable to read channel selection file %s: %s", path, exc)
+        return None
+    if isinstance(raw, list):
+        return {str(ch) for ch in raw}
+    logger.warning("Channel selection file %s contained unexpected data: %s", path, type(raw))
+    return None
+
+
+def _write_channel_file(path: Path, payload: list[str]) -> None:
+    """Persist the channel IDs to *path*."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload))
+
+
 def get_selected_channel_ids() -> set[str]:
     """Return the set of enabled channel IDs."""
-    if CHANNEL_FILE.exists():
-        try:
-            raw = json.loads(CHANNEL_FILE.read_text())
-            if isinstance(raw, list):
-                return {str(ch) for ch in raw}
-            logger.warning("Channel selection file contained unexpected data: %s", type(raw))
-        except json.JSONDecodeError:
-            logger.warning("Channel selection file is not valid JSON; using all channels")
-        except OSError as exc:
-            logger.warning("Unable to read channel selection file: %s", exc)
+    for path in (CHANNEL_FILE, LEGACY_CHANNEL_FILE):
+        data = _load_channel_file(path)
+        if data is not None:
+            if path is LEGACY_CHANNEL_FILE and not CHANNEL_FILE.exists():
+                try:
+                    _write_channel_file(CHANNEL_FILE, sorted(data))
+                except OSError as exc:
+                    logger.warning("Unable to migrate channel selection to %s: %s", CHANNEL_FILE, exc)
+            return data
     return {ch.id for ch in step_daddy.channels}
 
 
@@ -87,10 +114,15 @@ def set_selected_channel_ids(ids: list[str]) -> None:
     """Persist the selected channel IDs and refresh the guide."""
     cleaned = sorted({str(cid) for cid in ids if cid})
     try:
-        CHANNEL_FILE.write_text(json.dumps(cleaned))
+        _write_channel_file(CHANNEL_FILE, cleaned)
     except OSError as exc:
         logger.exception("Failed to persist channel selection")
         raise RuntimeError("Unable to save channel selection") from exc
+    if LEGACY_CHANNEL_FILE != CHANNEL_FILE:
+        try:
+            _write_channel_file(LEGACY_CHANNEL_FILE, cleaned)
+        except OSError as exc:
+            logger.warning("Unable to update legacy channel selection file: %s", exc)
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(generate_guide())

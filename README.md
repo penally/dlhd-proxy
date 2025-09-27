@@ -27,6 +27,9 @@ This is a fork of a self-hosted IPTV proxy built with [Reflex](https://reflex.de
    docker compose up -d
    ```
 
+   The compose file mounts a local `data/` directory into the container so that
+   channel selections saved through the UI persist across rebuilds.
+
 To run with plain Docker:
 
 ```bash
@@ -48,6 +51,12 @@ docker run -p 3000:3000 dlhd-proxy
 - **GUIDE_UPDATE**: Daily time (`HH:MM`) to refresh `guide.xml`.
 
 Edit the `.env` for docker compose.
+
+### Channel Selection Persistence
+
+Custom channel selections are stored in `data/selected_channels.json`. This
+directory is mounted as a Docker volume, so the preferences persist when the
+container is rebuilt or updated.
 
 ### Example Docker Command
 ```bash
