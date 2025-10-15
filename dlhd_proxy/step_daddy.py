@@ -56,7 +56,7 @@ class StepDaddy:
                     f"Failed to load channels: HTTP {response.status_code}"
                 )
             matches = re.findall(
-                r'href="/stream/stream-(\d+)\\.php"[^>]*>.*?<strong>(.*?)</strong>',
+                r'href="/stream/stream-(\d+)\.php"[^>]*>.*?<strong>(.*?)</strong>',
                 response.text,
                 re.DOTALL,
             )
