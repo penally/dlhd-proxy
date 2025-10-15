@@ -26,7 +26,7 @@ class StepDaddy:
             self._session = AsyncSession(proxy="socks5://" + socks5)
         else:
             self._session = AsyncSession()
-        self._base_url = "https://thedaddy.top"
+        self._base_url = "https://daddylivestream.com"
         self.channels: list[Channel] = []
         try:
             meta_data = resources.files(__package__).joinpath("meta.json").read_text()
@@ -56,11 +56,15 @@ class StepDaddy:
                     f"Failed to load channels: HTTP {response.status_code}"
                 )
             matches = re.findall(
-                r'<a class="card"\s+href="/watch\.php\?id=(\d+)"[^>]*>\s*<div class="card__title">(.*?)</div>',
+                r'href="/stream/stream-(\d+)\\.php"[^>]*>.*?<strong>(.*?)</strong>',
                 response.text,
-                re.DOTALL
+                re.DOTALL,
             )
+            seen_ids = set()
             for channel_id, channel_name in matches:
+                if channel_id in seen_ids:
+                    continue
+                seen_ids.add(channel_id)
                 channel_name = html.unescape(channel_name.strip()).replace("#", "")
                 meta = self._meta.get("18+" if channel_name.startswith("18+") else channel_name, {})
                 logo = meta.get("logo", "")
