@@ -1,12 +1,15 @@
 import json
-import re
-import reflex as rx
-from urllib.parse import quote, urlparse
-from curl_cffi import AsyncSession
-from typing import List
-from .utils import encrypt, decrypt, urlsafe_base64, decode_bundle
-from rxconfig import config
 import html
+import re
+from importlib import resources
+from typing import Iterable, List
+from urllib.parse import quote, urlparse
+
+import reflex as rx
+from curl_cffi import AsyncSession
+
+from .utils import decode_bundle, decrypt, encrypt, urlsafe_base64
+from rxconfig import config
 
 
 class Channel(rx.Base):
@@ -23,10 +26,13 @@ class StepDaddy:
             self._session = AsyncSession(proxy="socks5://" + socks5)
         else:
             self._session = AsyncSession()
-        self._base_url = "https://dlhd.dad"
-        self.channels = []
-        with open("StepDaddyLiveHD/meta.json", "r") as f:
-            self._meta = json.load(f)
+        self._base_url = "https://thedaddy.top"
+        self.channels: list[Channel] = []
+        try:
+            meta_data = resources.files(__package__).joinpath("meta.json").read_text()
+            self._meta = json.loads(meta_data)
+        except Exception:
+            self._meta = {}
 
     def _headers(self, referer: str = None, origin: str = None):
         if referer is None:
@@ -42,7 +48,13 @@ class StepDaddy:
     async def load_channels(self):
         channels = []
         try:
-            response = await self._session.get(f"{self._base_url}/24-7-channels.php", headers=self._headers())
+            response = await self._session.get(
+                f"{self._base_url}/24-7-channels.php", headers=self._headers()
+            )
+            if response.status_code >= 400:
+                raise ValueError(
+                    f"Failed to load channels: HTTP {response.status_code}"
+                )
             matches = re.findall(
                 r'<a class="card"\s+href="/watch\.php\?id=(\d+)"[^>]*>\s*<div class="card__title">(.*?)</div>',
                 response.text,
@@ -56,7 +68,11 @@ class StepDaddy:
                     logo = f"{config.api_url}/logo/{urlsafe_base64(logo)}"
                 channels.append(Channel(id=channel_id, name=channel_name, tags=meta.get("tags", []), logo=logo))
         finally:
-            self.channels = sorted(channels, key=lambda channel: (channel.name.startswith("18"), channel.name))
+            self._enumerate_duplicate_names(channels)
+            self.channels = sorted(
+                channels,
+                key=lambda channel: (channel.name.startswith("18"), channel.name),
+            )
 
     async def stream(self, channel_id: str):
         key = "CHANNEL_KEY"
@@ -77,7 +93,9 @@ class StepDaddy:
         auth_rnd = data.get("b_rnd", "")
         auth_url = data.get("b_host", "")
         auth_request_url = f"{auth_url}auth.php?channel_id={channel_key}&ts={auth_ts}&rnd={auth_rnd}&sig={auth_sig}"
-        auth_response = await self._session.get(auth_request_url, headers=self._headers(source_url))
+        auth_response = await self._session.get(
+            auth_request_url, headers=self._headers(source_url)
+        )
         if auth_response.status_code != 200:
             raise ValueError("Failed to get auth response")
         key_url = urlparse(source_url)
@@ -90,7 +108,9 @@ class StepDaddy:
             server_url = f"https://top1.newkso.ru/top1/cdn/{channel_key}/mono.m3u8"
         else:
             server_url = f"https://{server_key}new.newkso.ru/{server_key}/{channel_key}/mono.m3u8"
-        m3u8 = await self._session.get(server_url, headers=self._headers(quote(str(source_url))))
+        m3u8 = await self._session.get(
+            server_url, headers=self._headers(quote(str(source_url)))
+        )
         m3u8_data = ""
         for line in m3u8.text.split("\n"):
             if line.startswith("#EXT-X-KEY:"):
@@ -113,13 +133,37 @@ class StepDaddy:
     def content_url(path: str):
         return decrypt(path)
 
-    def playlist(self):
+    def playlist(self, channels: Iterable[Channel] | None = None):
         data = "#EXTM3U\n"
-        for channel in self.channels:
+        channels = list(channels) if channels is not None else self.channels
+        for channel in channels:
             entry = f" tvg-logo=\"{channel.logo}\",{channel.name}" if channel.logo else f",{channel.name}"
             data += f"#EXTINF:-1{entry}\n{config.api_url}/stream/{channel.id}.m3u8\n"
         return data
 
     async def schedule(self):
-        response = await self._session.get(f"{self._base_url}/schedule/schedule-generated.php", headers=self._headers())
+        response = await self._session.get(
+            f"{self._base_url}/schedule/schedule-generated.php",
+            headers=self._headers(),
+        )
+        if response.status_code >= 400:
+            raise ValueError(
+                f"Failed to fetch schedule: HTTP {response.status_code}"
+            )
         return response.json()
+
+    async def aclose(self) -> None:
+        await self._session.aclose()
+
+    @staticmethod
+    def _enumerate_duplicate_names(channels: Iterable[Channel]) -> None:
+        channel_list = list(channels)
+        counts: dict[str, int] = {}
+        for channel in channel_list:
+            counts[channel.name] = counts.get(channel.name, 0) + 1
+
+        seen: dict[str, int] = {}
+        for channel in channel_list:
+            if counts[channel.name] > 1:
+                seen[channel.name] = seen.get(channel.name, 0) + 1
+                channel.name = f"{channel.name} ({seen[channel.name]})"

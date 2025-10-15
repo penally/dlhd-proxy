@@ -1,7 +1,9 @@
+import base64
+import binascii
+import json
 import os
 import re
-import base64
-import json
+from typing import Any
 
 key_bytes = os.urandom(64)
 
@@ -13,12 +15,20 @@ def encrypt(input_string: str):
 
 
 def decrypt(input_string: str):
-    padding_needed = 4 - (len(input_string) % 4)
+    padding_needed = (-len(input_string)) % 4
     if padding_needed:
-        input_string += '=' * padding_needed
-    input_bytes = base64.urlsafe_b64decode(input_string)
+        input_string += "=" * padding_needed
+    if not re.fullmatch(r"[A-Za-z0-9_-]+=?=?", input_string):
+        raise ValueError("Invalid encrypted payload")
+    try:
+        input_bytes = base64.urlsafe_b64decode(input_string)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Invalid encrypted payload") from exc
     result = xor(input_bytes)
-    return result.decode()
+    try:
+        return result.decode()
+    except UnicodeDecodeError as exc:
+        raise ValueError("Invalid encrypted payload") from exc
 
 
 def xor(input_bytes):
@@ -49,31 +59,56 @@ def extract_and_decode_var(var_name: str, response: str) -> str:
     return base64.b64decode(b64).decode("utf-8")
 
 
-def decode_bundle(response_text: str) -> dict:
-    candidates = set()
-    candidates.update(re.findall(r'JSON\.parse\s*\(\s*atob\s*\(\s*["\']([^"\']{40,})["\']\s*\)\s*\)', response_text))
-    candidates.update(re.findall(r'atob\s*\(\s*["\'](eyJ[A-Za-z0-9+/=]{40,})["\']\s*\)', response_text))
-    candidates.update(re.findall(r'(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*["\'](eyJ[A-Za-z0-9+/=]{40,})["\']', response_text))
+def decode_bundle(response_text: str) -> dict[str, Any]:
+    def normalize(data: dict[str, Any]) -> dict[str, Any]:
+        decoded: dict[str, Any] = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                try:
+                    pad = "=" * (-len(value) % 4)
+                    decoded[key] = base64.b64decode(value + pad).decode("utf-8")
+                except Exception:
+                    decoded[key] = value
+            else:
+                decoded[key] = value
+        return decoded
+
+    def parse_candidate(candidate: str) -> dict[str, Any] | None:
+        try:
+            decoded_candidate = base64.b64decode(candidate + "=" * (-len(candidate) % 4)).decode(
+                "utf-8"
+            )
+        except Exception:
+            return None
+        try:
+            data = json.loads(decoded_candidate)
+        except json.JSONDecodeError:
+            return None
+        if any(key in data for key in ("b_ts", "b_sig", "b_host", "b_rnd")):
+            return normalize(data)
+        return None
+
+    candidates = {response_text.strip()}
+    candidates.update(
+        re.findall(
+            r'JSON\.parse\s*\(\s*atob\s*\(\s*["\']([^"\']{40,})["\']\s*\)\s*\)',
+            response_text,
+        )
+    )
+    candidates.update(
+        re.findall(r'atob\s*\(\s*["\'](eyJ[A-Za-z0-9+/=]{40,})["\']\s*\)', response_text)
+    )
+    candidates.update(
+        re.findall(
+            r'(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*["\'](eyJ[A-Za-z0-9+/=]{40,})["\']',
+            response_text,
+        )
+    )
     candidates.update(re.findall(r'["\'](eyJ[A-Za-z0-9+/=]{40,})["\']', response_text))
     candidates.update(re.findall(r'["\']([A-Za-z0-9+/=]{80,})["\']', response_text))
 
     for candidate in candidates:
-        try:
-            decoded_candidate = base64.b64decode(candidate).decode("utf-8")
-            data = json.loads(decoded_candidate)
-            if not all(key in data for key in ['b_ts', 'b_sig', 'b_rnd', 'b_host']):
-                continue
-            decoded = {}
-            for k, v in data.items():
-                if isinstance(v, str):
-                    try:
-                        pad = '=' * (-len(v) % 4)
-                        decoded[k] = base64.b64decode(v + pad).decode("utf-8")
-                    except Exception:
-                        decoded[k] = v
-                else:
-                    decoded[k] = v
+        decoded = parse_candidate(candidate)
+        if decoded:
             return decoded
-        except Exception:
-            continue
     return {}
