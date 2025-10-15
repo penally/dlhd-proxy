@@ -52,6 +52,7 @@ client = httpx.AsyncClient(
     http2=True,
     timeout=httpx.Timeout(15.0, read=60.0),
     follow_redirects=True,
+    verify=False,
 )
 
 
