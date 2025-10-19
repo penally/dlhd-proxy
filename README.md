@@ -2,6 +2,8 @@
 
 This is a fork of a self-hosted IPTV proxy built with [Reflex](https://reflex.dev), enabling you to watch over 1,000 📺 TV channels and search for live events or sports matches ⚽🏀. Stream directly in your browser 🌐 or through any media player client 🎶. You can also download the entire playlist (`playlist.m3u8`) and integrate it with platforms like Jellyfin 🍇 or other IPTV media players.
 
+**CURRENTLY BROKEN DUE TO DLHD API CHANGES. PLEASE USE OTHER FORKS OR ORIGINAL REPO FOR NOW**
+
 ---
 
 ## ✨ Features
