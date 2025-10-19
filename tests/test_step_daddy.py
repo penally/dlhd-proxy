@@ -25,18 +25,14 @@ def test_enumerate_duplicate_names():
 
 def test_load_channels_parses_stream_list(monkeypatch):
     html = """
-    <div class="grid-item">
-        <a href="/stream/stream-149.php" target="_blank" rel="noopener">
-            <span style="color: #000000;">
-                <strong>ESPN SUR</strong>
-            </span>
+    <div class="grid">
+        <a class="card" href="/watch.php?id=149" data-title="espn sur">
+            <div class="card__title">ESPN SUR</div>
+            <div class="">ID: 149</div>
         </a>
-    </div>
-    <div class="grid-item">
-        <a href="/stream/stream-150.php" target="_blank" rel="noopener">
-            <span style="color: #000000;">
-                <strong>18+ (Player-01)</strong>
-            </span>
+        <a class="card" href="/watch.php?id=150" data-title="18+ (player-01)">
+            <div class="card__title">18+ (Player-01)</div>
+            <div class="">ID: 150</div>
         </a>
     </div>
     """
@@ -74,4 +70,36 @@ def test_load_channels_parses_stream_list(monkeypatch):
     assert channel_two.tags == ["adult"]
     assert channel_two.logo == (
         f"{config.api_url}/logo/{urlsafe_base64('https://cdn.example.com/adult.png')}"
+    )
+
+
+def test_load_channels_logs_request_status(monkeypatch, caplog):
+    html = """
+    <div class="grid">
+        <a class="card" href="/watch.php?id=149">
+            <div class="card__title">ESPN SUR</div>
+        </a>
+    </div>
+    """
+
+    class FakeResponse:
+        def __init__(self, text: str, status_code: int = 200):
+            self.text = text
+            self.status_code = status_code
+
+    class FakeSession:
+        async def get(self, *_args, **_kwargs):
+            return FakeResponse(html)
+
+    step_daddy = StepDaddy()
+    monkeypatch.setattr(step_daddy, "_session", FakeSession(), raising=False)
+
+    caplog.set_level("INFO")
+    asyncio.run(step_daddy.load_channels())
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "Request to https://daddylivestream.com/24-7-channels.php succeeded with HTTP 200"
+        in message
+        for message in messages
     )

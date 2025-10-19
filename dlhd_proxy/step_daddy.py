@@ -1,15 +1,19 @@
 import json
 import html
+import logging
 import re
 from importlib import resources
 from typing import Iterable, List
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, urlsplit
 
 import reflex as rx
 from curl_cffi import AsyncSession
 
 from .utils import decode_bundle, decrypt, encrypt, urlsafe_base64
 from rxconfig import config
+
+
+logger = logging.getLogger(__name__)
 
 
 class Channel(rx.Base):
@@ -33,6 +37,7 @@ class StepDaddy:
             self._meta = json.loads(meta_data)
         except Exception:
             self._meta = {}
+        self._logged_domains = {"daddylivestream.com", "dlhd.dad"}
 
     def _headers(self, referer: str = None, origin: str = None):
         if referer is None:
@@ -46,17 +51,16 @@ class StepDaddy:
         return headers
 
     async def load_channels(self):
-        channels = []
+        channels: list[Channel] = []
+        url = f"{self._base_url}/24-7-channels.php"
         try:
-            response = await self._session.get(
-                f"{self._base_url}/24-7-channels.php", headers=self._headers()
-            )
+            response = await self._get(url, headers=self._headers())
             if response.status_code >= 400:
                 raise ValueError(
                     f"Failed to load channels: HTTP {response.status_code}"
                 )
             matches = re.findall(
-                r'href="/stream/stream-(\d+)\.php"[^>]*>.*?<strong>(.*?)</strong>',
+                r'href="/watch\.php\?id=(\d+)"[^>]*>\s*<div class="card__title">(.*?)</div>',
                 response.text,
                 re.DOTALL,
             )
@@ -65,12 +69,21 @@ class StepDaddy:
                 if channel_id in seen_ids:
                     continue
                 seen_ids.add(channel_id)
-                channel_name = html.unescape(channel_name.strip()).replace("#", "")
-                meta = self._meta.get("18+" if channel_name.startswith("18+") else channel_name, {})
+                name = html.unescape(channel_name.strip()).replace("#", "")
+                meta_key = "18+" if name.startswith("18+") else name
+                meta = self._meta.get(meta_key, {})
                 logo = meta.get("logo", "")
                 if logo:
                     logo = f"{config.api_url}/logo/{urlsafe_base64(logo)}"
-                channels.append(Channel(id=channel_id, name=channel_name, tags=meta.get("tags", []), logo=logo))
+                channels.append(
+                    Channel(
+                        id=channel_id,
+                        name=name,
+                        tags=meta.get("tags", []),
+                        logo=logo,
+                    )
+                )
+            logger.info("Loaded %d channels from daddylivestream.com", len(channels))
         finally:
             self._enumerate_duplicate_names(channels)
             self.channels = sorted(
@@ -81,11 +94,11 @@ class StepDaddy:
     async def stream(self, channel_id: str):
         key = "CHANNEL_KEY"
         url = f"{self._base_url}/stream/stream-{channel_id}.php"
-        response = await self._session.get(url, headers=self._headers())
+        response = await self._get(url, headers=self._headers())
         matches = re.compile("iframe src=\"(.*)\" width").findall(response.text)
         if matches:
             source_url = matches[0]
-            source_response = await self._session.get(source_url, headers=self._headers(url))
+            source_response = await self._get(source_url, headers=self._headers(url))
         else:
             raise ValueError("Failed to find source URL for channel")
 
@@ -97,14 +110,14 @@ class StepDaddy:
         auth_rnd = data.get("b_rnd", "")
         auth_url = data.get("b_host", "")
         auth_request_url = f"{auth_url}auth.php?channel_id={channel_key}&ts={auth_ts}&rnd={auth_rnd}&sig={auth_sig}"
-        auth_response = await self._session.get(
+        auth_response = await self._get(
             auth_request_url, headers=self._headers(source_url)
         )
         if auth_response.status_code != 200:
             raise ValueError("Failed to get auth response")
         key_url = urlparse(source_url)
         key_url = f"{key_url.scheme}://{key_url.netloc}/server_lookup.php?channel_id={channel_key}"
-        key_response = await self._session.get(key_url, headers=self._headers(source_url))
+        key_response = await self._get(key_url, headers=self._headers(source_url))
         server_key = key_response.json().get("server_key")
         if not server_key:
             raise ValueError("No server key found in response")
@@ -112,7 +125,7 @@ class StepDaddy:
             server_url = f"https://top1.newkso.ru/top1/cdn/{channel_key}/mono.m3u8"
         else:
             server_url = f"https://{server_key}new.newkso.ru/{server_key}/{channel_key}/mono.m3u8"
-        m3u8 = await self._session.get(
+        m3u8 = await self._get(
             server_url, headers=self._headers(quote(str(source_url)))
         )
         m3u8_data = ""
@@ -128,7 +141,9 @@ class StepDaddy:
     async def key(self, url: str, host: str):
         url = decrypt(url)
         host = decrypt(host)
-        response = await self._session.get(url, headers=self._headers(f"{host}/", host), timeout=60)
+        response = await self._get(
+            url, headers=self._headers(f"{host}/", host), timeout=60
+        )
         if response.status_code != 200:
             raise Exception(f"Failed to get key")
         return response.content
@@ -146,7 +161,7 @@ class StepDaddy:
         return data
 
     async def schedule(self):
-        response = await self._session.get(
+        response = await self._get(
             f"{self._base_url}/schedule/schedule-generated.php",
             headers=self._headers(),
         )
@@ -157,7 +172,29 @@ class StepDaddy:
         return response.json()
 
     async def aclose(self) -> None:
-        await self._session.aclose()
+        await self._session.close()
+
+    def _should_log_url(self, url: str) -> bool:
+        netloc = urlsplit(url).netloc.lower()
+        return any(netloc.endswith(domain) for domain in self._logged_domains)
+
+    async def _get(self, url: str, **kwargs):
+        try:
+            response = await self._session.get(url, **kwargs)
+        except Exception:
+            if self._should_log_url(url):
+                logger.exception("Request to %s failed", url)
+            raise
+        if self._should_log_url(url):
+            if response.status_code >= 400:
+                logger.warning(
+                    "Request to %s returned HTTP %s", url, response.status_code
+                )
+            else:
+                logger.info(
+                    "Request to %s succeeded with HTTP %s", url, response.status_code
+                )
+        return response
 
     @staticmethod
     def _enumerate_duplicate_names(channels: Iterable[Channel]) -> None:
