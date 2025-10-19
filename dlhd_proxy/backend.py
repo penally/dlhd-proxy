@@ -270,12 +270,22 @@ async def get_schedule():
         """Return a simplified version of a channel name."""
         return re.sub(r"\W+", "", name or "").lower()
 
+    suffix_re = re.compile(r"\s*\(\d+\)$")
     name_to_id: dict[str, str] = {}
     for ch in step_daddy.channels:
-        key = norm(ch.name)
-        # Prefer selected channels when multiple share the same name.
-        if key not in name_to_id or ch.id in selected:
-            name_to_id[key] = ch.id
+        variants = {ch.name or ""}
+        stripped = suffix_re.sub("", ch.name or "")
+        if stripped:
+            variants.add(stripped)
+        for variant in variants:
+            key = norm(variant)
+            if not key:
+                continue
+            # Prefer selected channels when multiple share the same name.
+            if key not in name_to_id or (
+                ch.id in selected and name_to_id[key] not in selected
+            ):
+                name_to_id[key] = ch.id
 
     def filter_channels(data):
         def resolve(chan: dict):
