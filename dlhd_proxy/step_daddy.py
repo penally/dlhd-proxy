@@ -4,10 +4,15 @@ import logging
 import re
 from importlib import resources
 from typing import Iterable, List
-from urllib.parse import quote, urlparse, urlsplit
+from urllib.parse import parse_qs, quote, urlparse, urlsplit
 
 import reflex as rx
 from curl_cffi import AsyncSession
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:  # pragma: no cover - optional dependency
+    BeautifulSoup = None
 
 from .utils import decode_bundle, decrypt, encrypt, urlsafe_base64
 from rxconfig import config
@@ -161,15 +166,156 @@ class StepDaddy:
         return data
 
     async def schedule(self):
-        response = await self._get(
-            f"{self._base_url}/schedule/schedule-generated.php",
-            headers=self._headers(),
-        )
-        if response.status_code >= 400:
+        json_url = f"{self._base_url}/schedule/schedule-generated.php"
+        response = await self._get(json_url, headers=self._headers())
+        if response.status_code < 400:
+            return response.json()
+
+        if response.status_code not in {401, 403, 404}:
             raise ValueError(
                 f"Failed to fetch schedule: HTTP {response.status_code}"
             )
-        return response.json()
+
+        for path in ("/schedule", "/"):
+            try:
+                html_response = await self._get(
+                    f"{self._base_url}{path}", headers=self._headers()
+                )
+            except Exception as exc:  # pragma: no cover - network failure
+                logger.debug("Schedule fallback request to %s failed: %s", path, exc)
+                continue
+            if html_response.status_code >= 400:
+                logger.debug(
+                    "Schedule fallback %s returned HTTP %s",
+                    path,
+                    html_response.status_code,
+                )
+                continue
+            try:
+                schedule = self._parse_schedule_html(html_response.text)
+            except ValueError as exc:
+                logger.debug(
+                    "Unable to parse schedule HTML from %s: %s", path, exc
+                )
+                continue
+            if schedule:
+                return schedule
+
+        raise ValueError("Failed to fetch schedule: no usable response")
+
+    @staticmethod
+    def _parse_schedule_html(payload: str) -> dict[str, dict[str, list[dict]]]:
+        if BeautifulSoup is None:
+            raise ValueError("BeautifulSoup is required to parse schedule HTML")
+
+        soup = BeautifulSoup(payload, "html.parser")
+        container = soup.select_one("div.schedule")
+        if not container:
+            raise ValueError("Schedule container not found")
+
+        schedule: dict[str, dict[str, list[dict]]] = {}
+
+        for day in container.select("div.schedule__day"):
+            title = day.select_one("div.schedule__dayTitle")
+            day_name = title.get_text(strip=True) if title else ""
+            if not day_name:
+                continue
+
+            categories: dict[str, list[dict]] = {}
+
+            for category in day.select("div.schedule__category"):
+                header = category.select_one(".schedule__catHeader .card__meta")
+                category_name = header.get_text(strip=True) if header else ""
+                if not category_name:
+                    continue
+
+                events: list[dict] = []
+
+                for event in category.select("div.schedule__event"):
+                    event_header = event.select_one(".schedule__eventHeader")
+                    if not event_header:
+                        continue
+
+                    time_node = event_header.select_one(".schedule__time")
+                    time_value = ""
+                    if time_node:
+                        time_value = time_node.get("data-time", "").strip() or time_node.get_text(strip=True)
+
+                    title_node = event_header.select_one(".schedule__eventTitle")
+                    event_title = ""
+                    if title_node:
+                        event_title = title_node.get_text(strip=True)
+                    event_title = event_title or event_header.get("data-title", "").strip()
+                    if not event_title:
+                        continue
+
+                    channels: list[dict[str, str]] = []
+                    channel_container = event.select_one(".schedule__channels")
+                    if channel_container:
+                        for link in channel_container.find_all("a"):
+                            href = link.get("href", "")
+                            channel_id = ""
+                            if href:
+                                parsed = urlsplit(href)
+                                if parsed.query:
+                                    params = parse_qs(parsed.query)
+                                    ids = params.get("id") or params.get("channel")
+                                    if ids:
+                                        channel_id = ids[0]
+                                if not channel_id:
+                                    match = re.search(r"(\d+)", href)
+                                    if match:
+                                        channel_id = match.group(1)
+                            name = (link.get("title") or link.get_text()).strip()
+                            if not channel_id or not name:
+                                continue
+                            channels.append(
+                                {"channel_id": str(channel_id), "channel_name": name}
+                            )
+
+                    if not channels:
+                        continue
+
+                    event_data: dict[str, object] = {
+                        "time": time_value,
+                        "event": event_title,
+                        "channels": channels,
+                    }
+
+                    alt_container = event.select_one(
+                        ".schedule__channels--alternate, .schedule__channelsAlt"
+                    )
+                    if alt_container:
+                        alt_channels: list[dict[str, str]] = []
+                        for link in alt_container.find_all("a"):
+                            href = link.get("href", "")
+                            match = re.search(r"(\d+)", href)
+                            if not match:
+                                continue
+                            name = (link.get("title") or link.get_text()).strip()
+                            if not name:
+                                continue
+                            alt_channels.append(
+                                {
+                                    "channel_id": match.group(1),
+                                    "channel_name": name,
+                                }
+                            )
+                        if alt_channels:
+                            event_data["channels2"] = alt_channels
+
+                    events.append(event_data)
+
+                if events:
+                    categories[category_name] = events
+
+            if categories:
+                schedule[day_name] = categories
+
+        if not schedule:
+            raise ValueError("No schedule data located")
+
+        return schedule
 
     async def aclose(self) -> None:
         await self._session.close()
