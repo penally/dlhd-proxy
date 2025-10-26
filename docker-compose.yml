@@ -1,24 +1,20 @@
 services:
   dlhd-proxy:
     build:
-      context: .
+      context: https://github.com/penally/dlhd-proxy.git
       dockerfile: Dockerfile
       args:
-        PORT: ${PORT}
-        API_URL: ${API_URL}
-        PROXY_CONTENT: ${PROXY_CONTENT}
-        SOCKS5: ${SOCKS5}
+        PROXY_CONTENT: "TRUE" # or TRUE if you want proxying enabled
+        API_URL: "http://192.168.0.123:3000" # replace with your LAN IP
+        SOCKS5: "" # optional, e.g., "user:pass@host:port"
     environment:
-      - PORT=${PORT}
-      - API_URL=${API_URL}
-      - PROXY_CONTENT=${PROXY_CONTENT}
-      - SOCKS5=${SOCKS5}
-      - TZ=${TZ}
-      - GUIDE_UPDATE=${GUIDE_UPDATE}
+      PORT: 3000
+      API_URL: "http://192.168.0.123:3000"
+      PUBLIC_URL: "http://192.168.0.123:3000"
+      BASE_URL: "http://192.168.0.123:3000"
+      PROXY_CONTENT: "TRUE"
+      SOCKS5: ""
+      BACKEND_URL: "http://127.0.0.1:8000" # internal backend for Caddy
     ports:
-      - "${PORT}:${PORT}"
+      - "3000:3000"
     restart: unless-stopped
-    env_file:
-      - .env
-    volumes:
-      - ./data:/app/data

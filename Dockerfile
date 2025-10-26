@@ -25,31 +25,20 @@ RUN reflex init
 # Copy local context to `/app` inside container (see .dockerignore)
 COPY . .
 
-ARG PORT API_URL PROXY_CONTENT SOCKS5
-# Download other npm dependencies and compile frontend
-RUN REFLEX_API_URL=${API_URL:-http://localhost:$PORT} reflex export --loglevel debug --frontend-only --no-zip && mv .web/build/client/* /srv/ && rm -rf .web
-
 
 # Final image with only necessary files
 FROM --platform=$TARGETPLATFORM python:3.11-slim
 
-# Install Caddy and redis server inside image
-RUN apt-get update -y && apt-get install -y --no-install-recommends \
-    caddy redis-server && rm -rf /var/lib/apt/lists/*
-
 ARG PORT API_URL
-ENV PATH="/app/.venv/bin:$PATH" PORT=$PORT REFLEX_API_URL=${API_URL:-http://localhost:$PORT} REDIS_URL=redis://localhost PYTHONUNBUFFERED=1 PROXY_CONTENT=${PROXY_CONTENT:-TRUE} SOCKS5=${SOCKS5:-""}
+ENV PATH="/app/.venv/bin:$PATH" PORT=$PORT REFLEX_API_URL=${API_URL:-http://localhost:$PORT} PYTHONUNBUFFERED=1 PROXY_CONTENT=${PROXY_CONTENT:-TRUE} SOCKS5=${SOCKS5:-""}
 
 WORKDIR /app
 COPY --from=builder /app /app
-COPY --from=builder /srv /srv
 
 # Needed until Reflex properly passes SIGTERM on backend.
 STOPSIGNAL SIGKILL
 
 EXPOSE $PORT
 
-# Starting the backend.
-CMD caddy start && \
-    redis-server --daemonize yes && \
-    exec reflex run --env prod --backend-only
+# Starting the full Reflex application (frontend + backend)
+CMD reflex run --env prod
