@@ -1,0 +1,14 @@
+# Cloudflare Pages Configuration
+# Place this file in your project root
+
+[build]
+command = "python build_frontend.py build"
+publish = ".web/build/client"
+
+[build.environment_variables]
+NODE_VERSION = "18"
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200

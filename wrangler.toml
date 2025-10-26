@@ -1,0 +1,12 @@
+name = "dlhd-proxy-frontend"
+main = "dist/_worker.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = "python build_frontend.py build"
+
+[site]
+bucket = ".web/build/client"
+include = ["*"]
+exclude = []

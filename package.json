@@ -1,0 +1,14 @@
+{
+  "name": "dlhd-proxy-frontend",
+  "version": "1.0.0",
+  "description": "DLHD Proxy Frontend",
+  "scripts": {
+    "build": "python build_frontend.py build",
+    "deploy": "wrangler pages deploy .web/build/client",
+    "dev": "python build_frontend.py dev",
+    "serve": "python build_frontend.py serve"
+  },
+  "keywords": ["dlhd", "proxy", "frontend"],
+  "author": "",
+  "license": "MIT"
+}
