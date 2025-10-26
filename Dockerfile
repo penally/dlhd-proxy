@@ -29,6 +29,12 @@ COPY . .
 # Final image with only necessary files
 FROM --platform=$TARGETPLATFORM python:3.11-slim
 
+# Install OpenSSL and certificates for TLS support
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    openssl \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
 ARG PORT API_URL
 ENV PATH="/app/.venv/bin:$PATH" PORT=$PORT REFLEX_API_URL=${API_URL:-http://localhost:$PORT} PYTHONUNBUFFERED=1 PROXY_CONTENT=${PROXY_CONTENT:-TRUE} SOCKS5=${SOCKS5:-""}
 
