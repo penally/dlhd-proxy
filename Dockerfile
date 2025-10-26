@@ -29,10 +29,13 @@ COPY . .
 # Final image with only necessary files
 FROM --platform=$TARGETPLATFORM python:3.11-slim
 
-# Install OpenSSL and certificates for TLS support
+# Install OpenSSL, certificates, and curl libraries for TLS support
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     openssl \
-    ca-certificates && \
+    ca-certificates \
+    libcurl4 \
+    libssl3 \
+    libcrypto3 && \
     rm -rf /var/lib/apt/lists/*
 
 ARG PORT API_URL
