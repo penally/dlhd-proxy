@@ -184,7 +184,6 @@ async def content(path: str):
         response = await client.send(
             client.build_request("GET", url),
             stream=True,
-            timeout=60,
         )
     except httpx.RequestError as exc:
         logger.exception("Content proxy request failed for %s", url)

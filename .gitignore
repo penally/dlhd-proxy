@@ -9,3 +9,6 @@ __pycache__/
 .env
 guide.xml
 channels.json
+/logo-cache/
+*.zip
+*.log
